@@ -1,0 +1,13 @@
+{
+  "manifest_version": 1,
+  "package_name": "Housteca",
+  "version": "0.1.0",
+  "authors": [
+    "José Molina Colmenero <jmolinacolmenero@gmail.com>",
+    "José Redondo Hurtado <jredondoh@gmail.com>"
+  ],
+  "sources": [
+    "./contracts"
+  ],
+  "dependencies": {}
+}
