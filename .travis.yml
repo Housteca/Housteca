@@ -25,5 +25,7 @@ install:
 
 script:
   - truffle develop &
+  - sleep 5
+  - yarn run migrate
   - yarn run test
   - yarn run lint
