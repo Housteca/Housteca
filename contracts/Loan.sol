@@ -8,6 +8,11 @@ import "./Housteca.sol";
 
 contract Loan is IERC777Recipient
 {
+    ///////////// Constants /////////////
+
+    uint constant public FUNDING_PERIOD = 90 days;
+
+
     ///////////// Libraries /////////////
 
     using SafeMath for uint;
@@ -33,6 +38,11 @@ contract Loan is IERC777Recipient
     }
 
 
+    ///////////// Events /////////////
+
+    event StatusChanged(Status indexed from, Status indexed to);
+
+
     ///////////// Attributes /////////////
 
     address public _borrower;
@@ -47,6 +57,7 @@ contract Loan is IERC777Recipient
     uint public _timesPaid;
     uint public _periodicity;
     uint public _startPaymentDelay;
+    uint public _fundingDeadline;
 
 
     ///////////// Modifiers /////////////
@@ -132,6 +143,30 @@ contract Loan is IERC777Recipient
         return _total.sub(totalPaid());
     }
 
+    function paymentPeriodExpired()
+      public
+      view
+      returns (bool)
+    {
+        return _status == Status.ACTIVE && block.timestamp > _nextPayment;
+    }
+
+    function fundingPeriodExpired()
+      public
+      view
+      returns (bool)
+    {
+        return _status == Status.CREATED && block.timestamp > _fundingDeadline;
+    }
+
+    function shouldUpdate()
+      public
+      view
+      returns (bool)
+    {
+        return fundingPeriodExpired() || paymentPeriodExpired();
+    }
+
 
     ///////////// Status CREATED /////////////
 
@@ -146,7 +181,6 @@ contract Loan is IERC777Recipient
     )
       public
     {
-        _status = Status.CREATED;
         _housteca = housteca;
         _target = target;
         _total = total;
@@ -155,6 +189,8 @@ contract Loan is IERC777Recipient
         _periodicity = periodicity;
         _startPaymentDelay = startPaymentDelay;
         _borrower = msg.sender;
+        _fundingDeadline = block.timestamp.add(FUNDING_PERIOD);
+        _status = Status.CREATED;
     }
 
     function _invest(
@@ -199,28 +235,13 @@ contract Loan is IERC777Recipient
     {
         require(balance() == _target, "Housteca Loan: Not enough funds to collect");
 
-        _status = Status.ACTIVE;
+        changeStatus(Status.ACTIVE);
         _nextPayment = block.timestamp.add(_startPaymentDelay);
         require(_token.transfer(_borrower, _target), "Housteca Loan: Token transfer failed");
     }
 
 
     ///////////// Status ACTIVE /////////////
-
-    function shouldUpdateStatus()
-      public
-      view
-      returns (bool)
-    {
-        // TODO: check if the contract should update its state
-        return false;
-    }
-
-    function update()
-      public
-    {
-        // TODO: update the status of this loan
-    }
 
     function _pay(
         address addr,
@@ -235,7 +256,7 @@ contract Loan is IERC777Recipient
 
         _timesPaid += 1;
         if (_timesPaid >= _totalPayments) {
-            _status = Status.FINISHED;
+            changeStatus(Status.FINISHED);
             _nextPayment = 0;
         } else {
             _nextPayment = _nextPayment.add(_periodicity);
@@ -260,6 +281,26 @@ contract Loan is IERC777Recipient
         require(investment.timesCollected < _timesPaid, "Housteca Loan: No amount left to collect for now");
         uint amountToCollect = (_timesPaid.sub(investment.timesCollected)).mul(paymentAmount());
         require(_token.transfer(msg.sender, amountToCollect), "Housteca Loan: Token transfer failed");
+    }
+
+
+    ///////////// Status change /////////////
+
+    function changeStatus(Status status)
+      internal
+    {
+        emit StatusChanged(_status, status);
+        _status = status;
+    }
+
+    function update()
+      public
+    {
+        if (fundingPeriodExpired()) {
+            changeStatus(Status.UNCOMPLETED);
+        } else if (paymentPeriodExpired()) {
+            changeStatus(Status.BANKRUPT);
+        }
     }
 
 
