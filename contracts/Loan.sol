@@ -220,7 +220,7 @@ contract Loan is IERC777Recipient
     function collectInvestment()
       external
     {
-        require(_status == Status.CREATED || _status == Status.UNCOMPLETED);
+        require(_status == Status.CREATED || _status == Status.UNCOMPLETED, "Housteca Loan: Invalid status");
 
         uint investedAmount = _investments[msg.sender].amount;
         require(investedAmount > 0, "Housteca Loan: Not amount invested");

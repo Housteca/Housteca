@@ -18,14 +18,13 @@ addons:
 
 before_install:
   - export CXX="g++-4.8"
-  - npm install -g yarn truffle
+  - npm install -g yarn
 
 install:
   - yarn install
 
 script:
-  - truffle develop &
-  - sleep 5
+  - yarn run ganache &
   - yarn run migrate
   - yarn run test
   - yarn run lint

@@ -28,16 +28,46 @@ contract Housteca
 
     ///////////// Events /////////////
 
-    event AdminAdded(address indexed admin, uint8 indexed level);
-    event AdminRemoved(address indexed admin, uint8 indexed level);
-    event InvestorAdded(address indexed investor);
-    event InvestorRemoved(address indexed investor);
-    event TokenAdded(string indexed symbol, address indexed contractAddress);
-    event TokenRemoved(string indexed symbol, address indexed contractAddress);
-    event InvestmentProposalCreated(address indexed borrower, string indexed symbol, uint target, uint total, uint totalPayments, uint periodicity);
-    event InvestmentProposalRemoved(address indexed borrower);
-    event InvestmentCreated(address indexed borrower, string indexed symbol, uint target, uint total, uint totalPayments, uint periodicity);
-
+    event AdminAdded(
+        address indexed admin,
+        uint8 indexed level
+    );
+    event AdminRemoved(
+        address indexed admin,
+        uint8 indexed level
+    );
+    event InvestorAdded(
+        address indexed investor
+    );
+    event InvestorRemoved(
+        address indexed investor
+    );
+    event TokenAdded(
+        string indexed symbol,
+        address indexed contractAddress
+    );
+    event TokenRemoved(
+        string indexed symbol,
+        address indexed contractAddress
+    );
+    event InvestmentProposalCreated(
+        address indexed borrower,
+        string indexed symbol,
+        uint target, uint total,
+        uint totalPayments,
+        uint periodicity
+    );
+    event InvestmentProposalRemoved(
+        address indexed borrower
+    );
+    event InvestmentCreated(
+        address indexed borrower,
+        string indexed symbol,
+        uint target,
+        uint total,
+        uint totalPayments,
+        uint periodicity
+    );
 
 
     ///////////// Attributes /////////////
@@ -60,7 +90,9 @@ contract Housteca
 
     ///////////// View functions /////////////
 
-    function getToken(string memory symbol)
+    function getToken(
+        string memory symbol
+    )
       public
       view
       returns (IERC20)
