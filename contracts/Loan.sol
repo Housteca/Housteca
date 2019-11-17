@@ -164,7 +164,7 @@ contract Loan is IERC777Recipient
       view
       returns (bool)
     {
-        return fundingPeriodExpired() || paymentPeriodExpired();
+        return fundingPeriodExpired() || paymentPeriodExpired();
     }
 
 
