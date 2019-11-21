@@ -10,6 +10,7 @@ contract Housteca
     ///////////// Constants /////////////
 
     uint8 constant public ADMIN_ROOT_LEVEL = (2 ** 8) - 1;
+    uint constant public GRACE_PERIOD_PROPOSAL = 15 days;
 
 
     ///////////// Structs /////////////
@@ -18,11 +19,11 @@ contract Housteca
     {
         string symbol;
         uint target;
-        uint total;
         uint totalPayments;
         uint periodicity;
-        uint startPaymentDelay;
         uint created;
+        uint insurance;
+        uint interestRatio;
     }
 
 
@@ -53,9 +54,11 @@ contract Housteca
     event InvestmentProposalCreated(
         address indexed borrower,
         string indexed symbol,
-        uint target, uint total,
+        uint target,
+        uint insurance,
         uint totalPayments,
-        uint periodicity
+        uint periodicity,
+        uint interestRatio
     );
     event InvestmentProposalRemoved(
         address indexed borrower
@@ -64,9 +67,10 @@ contract Housteca
         address indexed borrower,
         string indexed symbol,
         uint target,
-        uint total,
+        uint insurance,
         uint totalPayments,
-        uint periodicity
+        uint periodicity,
+        uint interestRatio
     );
 
 
@@ -183,26 +187,30 @@ contract Housteca
         uint total,
         uint totalPayments,
         uint periodicity,
-        uint startPaymentDelay
+        uint insurance,
+        uint interestRatio
     )
       external
       isAdmin(ADMIN_ROOT_LEVEL - 2)
     {
         require(target > 0, "Housteca: Target amount must be greater than zero");
+        require(insurance > 0, "Housteca: The insurance must be greater than zero");
+        require(interestRatio > 0, "Housteca: The interest ratio must be greater than zero");
         require(totalPayments > 0, "Housteca: The total number of payments must be greater than zero");
         require(total > target, "Housteca: The total amount must be greater than the target amount");
+        require(address(_tokens[symbol]) != address(0), "Housteca: Invalid token symbol");
 
         _proposals[borrower] = InvestmentProposal({
             symbol: symbol,
             target: target,
-            total: total,
             totalPayments: totalPayments,
             periodicity: periodicity,
-            startPaymentDelay: startPaymentDelay,
-            created: block.timestamp
+            created: block.timestamp,
+            insurance: insurance,
+            interestRatio: interestRatio
         });
 
-        emit InvestmentProposalCreated(borrower, symbol, target, total, totalPayments, periodicity);
+        emit InvestmentProposalCreated(borrower, symbol, target, insurance, totalPayments, periodicity, interestRatio);
     }
 
     function removeInvestmentProposal(
@@ -220,26 +228,27 @@ contract Housteca
     {
         InvestmentProposal storage proposal = _proposals[msg.sender];
         require(proposal.target > 0, "Housteca: There is no investment proposal for this address");
-        require(proposal.created + 30 days < block.timestamp, "Housteca: the 30-day period to create the investment has expired");
+        require(proposal.created + GRACE_PERIOD_PROPOSAL < block.timestamp, "Housteca: the period to create the investment has expired");
 
         IERC20 token = getToken(proposal.symbol);
         Loan loan = new Loan(
             this,
             token,
             proposal.target,
-            proposal.total,
             proposal.totalPayments,
             proposal.periodicity,
-            proposal.startPaymentDelay
+            proposal.insurance,
+            proposal.interestRatio
         );
         _loans.push(loan);
         emit InvestmentCreated(
             msg.sender,
             proposal.symbol,
             proposal.target,
-            proposal.total,
             proposal.totalPayments,
-            proposal.periodicity
+            proposal.periodicity,
+            proposal.insurance,
+            proposal.interestRatio
         );
     }
 }

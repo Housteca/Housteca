@@ -11,6 +11,7 @@ contract Loan is IERC777Recipient
     ///////////// Constants /////////////
 
     uint constant public FUNDING_PERIOD = 90 days;
+    uint constant public INITIAL_STAKE_PERIOD = 15 days;
 
 
     ///////////// Libraries /////////////
@@ -22,19 +23,12 @@ contract Loan is IERC777Recipient
 
     enum Status
     {
-        CREATED,        // the loan has just been created and can seek investors
-        ACTIVE,         // the loan got enough funding and has to be paid
-        FINISHED,       // the load has been successfully paid and no longer supports operations
-        UNCOMPLETED,    // the loan did not get enough funding and no longer supports operations
-        BANKRUPT        // the loan got enough funding but the borrower did not pay on time
-    }
-
-
-    ///////////// Structs /////////////
-
-    struct Investment {
-        uint amount;
-        uint timesCollected;
+        AWAITING_STAKE,     // the loan is waiting for the borrower to deposit the stake
+        FUNDING,                // the loan is expecting to receive funds
+        ACTIVE,                 // the loan got enough funding and has to be paid
+        FINISHED,               // the load has been successfully paid and no longer supports operations
+        UNCOMPLETED,            // the loan did not get enough funding and no longer supports operations
+        BANKRUPT                // the loan got enough funding but the borrower did not pay on time
     }
 
 
@@ -45,19 +39,36 @@ contract Loan is IERC777Recipient
 
     ///////////// Attributes /////////////
 
+    /// user that buys a house
     address public _borrower;
+    /// token used to pay and fund
     IERC20 public _token;
+    /// current status of the contract
     Status public _status;
+    /// address of Housteca's main contract
     Housteca public _housteca;
-    mapping(address => Investment) public _investments;
+    /// map to keep track of investor's funding
+    mapping(address => uint) public _balances;
+    /// map to keep track of the times each investor collected
+    mapping(address => uint) public _timesCollected;
+    /// amount investors have to reach
     uint public _target;
-    uint public _total;
+    /// number of payments to be made to return the initial investment
     uint public _totalPayments;
+    /// timestamp of the next payment
     uint public _nextPayment;
+    /// number of times the borrower paid the debt
     uint public _timesPaid;
+    /// maximum number of seconds between consecutive payments
     uint public _periodicity;
-    uint public _startPaymentDelay;
+    /// timestamp that exposes the maximum date available to fund this contract
     uint public _fundingDeadline;
+    /// timestamp that exposes the maximum date available to send the initial stake to this contract
+    uint public _initialStakeDeadline;
+    /// amount of tokens available as unpaid insurance
+    uint public _insurance;
+    /// percentage of interests for investors
+    uint public _interestRatio;
 
 
     ///////////// Modifiers /////////////
@@ -108,7 +119,23 @@ contract Loan is IERC777Recipient
       view
       returns (uint)
     {
-        return _token.balanceOf(address(this));
+        return _token.balanceOf(address(this)).sub(_balances[_borrower]);
+    }
+
+    function initialStake()
+      public
+      view
+      returns (uint)
+    {
+        return _target.div(10);
+    }
+
+    function total()
+      public
+      view
+      returns (uint)
+    {
+        return _target.mul(_interestRatio).div(100);
     }
 
     function paymentAmount()
@@ -116,7 +143,7 @@ contract Loan is IERC777Recipient
       view
       returns (uint)
     {
-        return _total.div(_totalPayments);
+        return total().div(_totalPayments);
     }
 
     function paymentsLeft()
@@ -140,7 +167,7 @@ contract Loan is IERC777Recipient
       view
       returns (uint)
     {
-        return _total.sub(totalPaid());
+        return total().sub(totalPaid());
     }
 
     function paymentPeriodExpired()
@@ -151,12 +178,20 @@ contract Loan is IERC777Recipient
         return _status == Status.ACTIVE && block.timestamp > _nextPayment;
     }
 
+    function initialStakePeriodExpired()
+      public
+      view
+      returns (bool)
+    {
+        return _status == Status.AWAITING_STAKE && block.timestamp > _initialStakeDeadline;
+    }
+
     function fundingPeriodExpired()
       public
       view
       returns (bool)
     {
-        return _status == Status.CREATED && block.timestamp > _fundingDeadline;
+        return _status == Status.AWAITING_STAKE && block.timestamp > _fundingDeadline;
     }
 
     function shouldUpdate()
@@ -168,43 +203,63 @@ contract Loan is IERC777Recipient
     }
 
 
-    ///////////// Status CREATED /////////////
+    ///////////// Status AWAITING_STAKE /////////////
 
     constructor(
         Housteca housteca,
         IERC20 token,
         uint target,
-        uint total,
         uint totalPayments,
         uint periodicity,
-        uint startPaymentDelay
+        uint insurance,
+        uint interestRatio
     )
       public
     {
         _housteca = housteca;
         _target = target;
-        _total = total;
         _token = token;
         _totalPayments = totalPayments;
         _periodicity = periodicity;
-        _startPaymentDelay = startPaymentDelay;
+        _insurance = insurance;
+        _interestRatio = interestRatio;
         _borrower = msg.sender;
-        _fundingDeadline = block.timestamp.add(FUNDING_PERIOD);
-        _status = Status.CREATED;
+        _initialStakeDeadline = block.timestamp.add(INITIAL_STAKE_PERIOD);
+        _status = Status.AWAITING_STAKE;
     }
+
+    function _sendInitialStake(address from, uint amount)
+      internal
+      checkStatus(Status.AWAITING_STAKE)
+    {
+        require(isBorrower(from), "Housteca Loan: Only the borrower can deposit the initial stake");
+        require(amount == initialStake(), "Housteca Loan: invalid initial stake amount");
+        _fundingDeadline = block.timestamp.add(FUNDING_PERIOD);
+        changeStatus(Status.ACTIVE);
+    }
+
+    function sendInitialStake()
+      external
+    {
+        uint amount = initialStake();
+        require(_token.transferFrom(_borrower, address(this), amount), "Housteca Loan: Token transfer failed");
+        _sendInitialStake(msg.sender, amount);
+    }
+
+
+    ///////////// Status FUNDING /////////////
 
     function _invest(
         address investor,
         uint amount
     )
       internal
-      checkStatus(Status.CREATED)
+      checkStatus(Status.FUNDING)
     {
         require(isInvestor(investor), "Housteca Loan: An investor is required");
         require(balance() <= _target, "Housteca Loan: Amount sent over required one");
 
-        Investment storage investment = _investments[msg.sender];
-        investment.amount = investment.amount.add(amount);
+        _balances[msg.sender] = _balances[msg.sender].add(amount);
     }
 
     function invest(
@@ -220,24 +275,24 @@ contract Loan is IERC777Recipient
     function collectInvestment()
       external
     {
-        require(_status == Status.CREATED || _status == Status.UNCOMPLETED, "Housteca Loan: Invalid status");
+        require(_status == Status.FUNDING || _status == Status.UNCOMPLETED, "Housteca Loan: Invalid status");
 
-        uint investedAmount = _investments[msg.sender].amount;
+        uint investedAmount = _balances[msg.sender];
         require(investedAmount > 0, "Housteca Loan: Not amount invested");
 
-        delete _investments[msg.sender];
+        _balances[msg.sender] = 0;
         require(_token.transfer(msg.sender, investedAmount), "Housteca Loan: Token transfer failed");
     }
 
     function collectAllFunds()
       external
       checkIsBorrower
-      checkStatus(Status.CREATED)
+      checkStatus(Status.FUNDING)
     {
         require(balance() == _target, "Housteca Loan: Not enough funds to collect");
 
         changeStatus(Status.ACTIVE);
-        _nextPayment = block.timestamp.add(_startPaymentDelay);
+        _nextPayment = block.timestamp.add(_periodicity);
         require(_token.transfer(_borrower, _target), "Housteca Loan: Token transfer failed");
     }
 
@@ -278,9 +333,11 @@ contract Loan is IERC777Recipient
       external
       checkIsInvestor
     {
-        Investment storage investment = _investments[msg.sender];
-        require(investment.timesCollected < _timesPaid, "Housteca Loan: No amount left to collect for now");
-        uint amountToCollect = (_timesPaid.sub(investment.timesCollected)).mul(paymentAmount());
+        uint timesCollected = _timesCollected[msg.sender];
+        require(timesCollected < _timesPaid, "Housteca Loan: No amount left to collect for now");
+
+        uint amountToCollect = (_timesPaid.sub(timesCollected)).mul(paymentAmount());
+        _timesCollected[msg.sender] = timesCollected.add(1);
         require(_token.transfer(msg.sender, amountToCollect), "Housteca Loan: Token transfer failed");
     }
 
@@ -297,7 +354,7 @@ contract Loan is IERC777Recipient
     function update()
       public
     {
-        if (fundingPeriodExpired()) {
+        if (initialStakePeriodExpired() || fundingPeriodExpired()) {
             changeStatus(Status.UNCOMPLETED);
         } else if (paymentPeriodExpired()) {
             changeStatus(Status.BANKRUPT);
@@ -318,8 +375,9 @@ contract Loan is IERC777Recipient
       external
     {
         require(to == address(this), "Housteca Loan: Invalid ERC777 token receiver");
-
-        if (_status == Status.CREATED) {
+        if (_status == Status.AWAITING_STAKE) {
+            _sendInitialStake(from, amount);
+        } else if (_status == Status.AWAITING_STAKE) {
             _invest(from, amount);
         } else if (_status == Status.ACTIVE) {
             _pay(from, amount);
