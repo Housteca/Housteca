@@ -353,8 +353,7 @@ contract Loan is IERC777Recipient
       external
       checkStatus(Status.AWAITING_SIGNATURES)
     {
-        require(_borrowerSignature.length == 0 || _localNodeSignature.length == 0,
-            "Housteca Loan: Both borrower and the local node already signed the document");
+        require(_borrowerSignature.length == 0 || _localNodeSignature.length == 0, "Housteca Loan: The document is already signed");
         _documentHash = documentHash;
         _localNodeSignature.length = 0;
         _borrowerSignature.length = 0;
@@ -400,7 +399,7 @@ contract Loan is IERC777Recipient
         } else if (isLocalNode(msg.sender)) {
             _localNodeSignature = signature;
         } else {
-            revert("Housteca Loan: Only the borrower and the local node can perform this operation");
+            revert("Housteca Loan: You cannot perform this operation");
         }
     }
 
@@ -433,8 +432,7 @@ contract Loan is IERC777Recipient
     )
       internal
     {
-        require(_status == Status.ACTIVE || _status == Status.DEFAULT,
-            "Housteca Loan: Cannot perform this operation in the current status");
+        require(_status == Status.ACTIVE || _status == Status.DEFAULT, "Housteca Loan: Cannot perform this operation in the current status");
         require(addr == _borrower, "Housteca Loan: Only the borrower can pay");
         require(amount == paymentAmount(), "Housteca Loan: Invalid amount to pay");
         require(_nextPayment < block.timestamp.add(PERIODICITY), "Housteca Loan: it is too soon to pay");
