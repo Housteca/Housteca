@@ -238,7 +238,7 @@ contract Loan is IERC777Recipient
     constructor(
         Housteca housteca,
         address localNode,
-        IERC20 token,
+        address tokenAddress,
         uint downpaymentRatio,
         uint targetAmount,
         uint totalPayments,
@@ -251,7 +251,7 @@ contract Loan is IERC777Recipient
     {
         _housteca = housteca;
         _localNode = localNode;
-        _token = token;
+        _token = IERC20(tokenAddress);
         _downpaymentRatio = downpaymentRatio;
         _targetAmount = targetAmount;
         _totalPayments = totalPayments;

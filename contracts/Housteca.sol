@@ -3,7 +3,6 @@ pragma solidity 0.5.13;
 import "./Loan.sol";
 import "openzeppelin-solidity/contracts/math/Math.sol";
 import "openzeppelin-solidity/contracts/math/SafeMath.sol";
-import "openzeppelin-solidity/contracts/token/ERC20/IERC20.sol";
 
 
 contract Housteca
@@ -101,7 +100,7 @@ contract Housteca
 
     mapping (address => Administrator) public _admins;
     mapping (address => bool) public _investors;
-    mapping (string => IERC20) public _tokens;
+    mapping (string => address) public _tokens;
     mapping (address => InvestmentProposal) public _proposals;
     uint public _houstecaMinimumFeeAmount;
     uint public _houstecaFeeRatio;
@@ -124,11 +123,12 @@ contract Housteca
     )
       public
       view
-      returns (IERC20)
+      returns (address)
     {
-        IERC20 token = _tokens[symbol];
-        require(address(token) != address(0), "Housteca: The token must be valid");
-        return token;
+        address tokenAddress = _tokens[symbol];
+        require(tokenAddress != address(0), "Housteca: The token must be valid");
+
+        return tokenAddress;
     }
 
 
@@ -190,13 +190,13 @@ contract Housteca
 
     function addToken(
         string calldata symbol,
-        address token
+        address tokenAddress
     )
       external
       isAdmin(ADMIN_ROOT_LEVEL - 1)
     {
-        emit TokenAdded(symbol, token);
-        _tokens[symbol] = IERC20(token);
+        emit TokenAdded(symbol, tokenAddress);
+        _tokens[symbol] = tokenAddress;
     }
 
     function removeToken(
@@ -293,11 +293,11 @@ contract Housteca
         require(proposal.targetAmount > 0, "Housteca: There is no investment proposal for this address");
         require(proposal.created.add(PROPOSAL_GRACE_PERIOD) < block.timestamp, "Housteca: the period to create the investment has expired");
 
-        IERC20 token = getToken(proposal.symbol);
+        address tokenAddress = getToken(proposal.symbol);
         Loan loan = new Loan(
             this,
             proposal.localNode,
-            token,
+            tokenAddress,
             proposal.downpaymentRatio,
             proposal.targetAmount,
             proposal.totalPayments,
