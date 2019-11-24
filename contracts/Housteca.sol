@@ -39,7 +39,6 @@ contract Housteca
         uint downpaymentRatio;
         uint targetAmount;
         uint totalPayments;
-        uint periodicity;
         uint insuredPayments;
         uint interestRatio;
         uint localNodeFeeAmount;
@@ -91,7 +90,6 @@ contract Housteca
         uint downpaymentRatio,
         uint targetAmount,
         uint totalPayments,
-        uint periodicity,
         uint insuredPayments,
         uint interestRatio,
         uint localNodeFeeAmount,
@@ -105,7 +103,7 @@ contract Housteca
     mapping (address => bool) public _investors;
     mapping (string => IERC20) public _tokens;
     mapping (address => InvestmentProposal) public _proposals;
-    uint public _houstecaMinFeeAmount;
+    uint public _houstecaMinimumFeeAmount;
     uint public _houstecaFeeRatio;
     Loan[] public _loans;
 
@@ -172,6 +170,24 @@ contract Housteca
         delete _admins[addr];
     }
 
+    function setHoustecaMinimumFeeAmount(
+        uint houstecaMinimumFeeAmount
+    )
+      external
+      isAdmin(ADMIN_ROOT_LEVEL - 1)
+    {
+        _houstecaMinimumFeeAmount = houstecaMinimumFeeAmount;
+    }
+
+    function setHoustecaFeeRatio(
+        uint houstecaFeeRatio
+    )
+      external
+      isAdmin(ADMIN_ROOT_LEVEL - 1)
+    {
+        _houstecaFeeRatio = houstecaFeeRatio;
+    }
+
     function addToken(
         string calldata symbol,
         address token
@@ -219,7 +235,7 @@ contract Housteca
         uint amount
     )
       internal
-      view
+      pure
       returns (uint)
     {
         return Math.max(minimumFeeAmount, amount.mul(feeRatio).div(RATIO));
@@ -233,9 +249,7 @@ contract Housteca
         uint totalPayments,
         uint periodicity,
         uint insuredPayments,
-        uint interestRatio,
-        uint localNodeFeeAmount,
-        uint houstecaFeeAmount
+        uint interestRatio
     )
       external
       isAdmin(ADMIN_ROOT_LEVEL - 2)
@@ -252,11 +266,10 @@ contract Housteca
             downpaymentRatio: downpaymentRatio,
             targetAmount: targetAmount,
             totalPayments: totalPayments,
-            periodicity: periodicity,
             insuredPayments: insuredPayments,
             interestRatio: interestRatio,
             localNodeFeeAmount: _getFee(admin.minimumFeeAmount, admin.feeRatio, targetAmount),
-            houstecaFeeAmount: _getFee(_houstecaMinFeeAmount, _houstecaFeeRatio, targetAmount),
+            houstecaFeeAmount: _getFee(_houstecaMinimumFeeAmount, _houstecaFeeRatio, targetAmount),
             created: block.timestamp
         });
 
@@ -288,7 +301,6 @@ contract Housteca
             proposal.downpaymentRatio,
             proposal.targetAmount,
             proposal.totalPayments,
-            proposal.periodicity,
             proposal.insuredPayments,
             proposal.interestRatio,
             proposal.localNodeFeeAmount,
@@ -302,7 +314,6 @@ contract Housteca
             proposal.downpaymentRatio,
             proposal.targetAmount,
             proposal.totalPayments,
-            proposal.periodicity,
             proposal.insuredPayments,
             proposal.interestRatio,
             proposal.localNodeFeeAmount,

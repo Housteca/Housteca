@@ -242,7 +242,6 @@ contract Loan is IERC777Recipient
         uint downpaymentRatio,
         uint targetAmount,
         uint totalPayments,
-        uint periodicity,
         uint insuredPayments,
         uint interestRatio,
         uint localNodeFeeAmount,
@@ -379,6 +378,7 @@ contract Loan is IERC777Recipient
         address addr
     )
       public
+      view
       returns (bool)
     {
         bytes memory prefix = "\x19Ethereum Signed Message:\n32";
