@@ -1,6 +1,7 @@
 pragma solidity 0.5.13;
 
 import "./Loan.sol";
+import "openzeppelin-solidity/contracts/math/Math.sol";
 import "openzeppelin-solidity/contracts/math/SafeMath.sol";
 import "openzeppelin-solidity/contracts/token/ERC20/IERC20.sol";
 
@@ -9,21 +10,41 @@ contract Housteca
 {
     ///////////// Constants /////////////
 
-    uint8 constant public ADMIN_ROOT_LEVEL = (2 ** 8) - 1;
-    uint constant public GRACE_PERIOD_PROPOSAL = 15 days;
+    /// Maximum level of administration of Housteca's contract
+    uint8 constant public ADMIN_ROOT_LEVEL = 255;
+    /// Number of seconds to keep a proposal alive
+    uint constant public PROPOSAL_GRACE_PERIOD = 15 days;
+    /// The number to multiply ratios for (solidity doesn't store floating point numbers)
+    uint constant public RATIO = 10000;
+
+
+    ///////////// Libraries /////////////
+
+    using SafeMath for uint;
 
 
     ///////////// Structs /////////////
 
+    struct Administrator
+    {
+        uint8 level;
+        uint minimumFeeAmount;
+        uint feeRatio;
+    }
+
     struct InvestmentProposal
     {
+        address localNode;
         string symbol;
-        uint target;
+        uint downpaymentRatio;
+        uint targetAmount;
         uint totalPayments;
         uint periodicity;
-        uint created;
-        uint insurance;
+        uint insuredPayments;
         uint interestRatio;
+        uint localNodeFeeAmount;
+        uint houstecaFeeAmount;
+        uint created;
     }
 
 
@@ -55,7 +76,7 @@ contract Housteca
         address indexed borrower,
         string indexed symbol,
         uint target,
-        uint insurance,
+        uint insuredPayments,
         uint totalPayments,
         uint periodicity,
         uint interestRatio
@@ -64,22 +85,28 @@ contract Housteca
         address indexed borrower
     );
     event InvestmentCreated(
-        address indexed borrower,
-        string indexed symbol,
-        uint target,
-        uint insurance,
+        address borrower,
+        address localNode,
+        string symbol,
+        uint downpaymentRatio,
+        uint targetAmount,
         uint totalPayments,
         uint periodicity,
-        uint interestRatio
+        uint insuredPayments,
+        uint interestRatio,
+        uint localNodeFeeAmount,
+        uint houstecaFeeAmount
     );
 
 
     ///////////// Attributes /////////////
 
-    mapping (address => uint8) public _admins;
+    mapping (address => Administrator) public _admins;
     mapping (address => bool) public _investors;
     mapping (string => IERC20) public _tokens;
     mapping (address => InvestmentProposal) public _proposals;
+    uint public _houstecaMinFeeAmount;
+    uint public _houstecaFeeRatio;
     Loan[] public _loans;
 
 
@@ -87,7 +114,7 @@ contract Housteca
 
     modifier isAdmin(uint8 level)
     {
-        require(_admins[msg.sender] >= level, "Housteca: Insufficient administrator privileges");
+        require(_admins[msg.sender].level >= level, "Housteca: Insufficient administrator privileges");
         _;
     }
 
@@ -112,31 +139,37 @@ contract Housteca
     constructor()
       public
     {
-        _admins[msg.sender] = ADMIN_ROOT_LEVEL;
+        _admins[msg.sender].level = ADMIN_ROOT_LEVEL;
         emit AdminAdded(msg.sender, ADMIN_ROOT_LEVEL);
     }
 
     function addAdmin(
         address addr,
-        uint8 level
+        uint8 level,
+        uint minimumFeeAmount,
+        uint feeRatio
     )
       external
-      isAdmin(level + 1)
+      isAdmin(ADMIN_ROOT_LEVEL - 1)
     {
         require(level > 0, "Housteca: Must provide a level greater than zero");
 
         emit AdminAdded(addr, level);
-        _admins[addr] = level;
+        _admins[addr] = Administrator({
+            level: level,
+            minimumFeeAmount: minimumFeeAmount,
+            feeRatio: feeRatio
+        });
     }
 
     function removeAdmin(
         address addr
     )
       external
-      isAdmin(_admins[addr] + 1)
+      isAdmin(_admins[addr].level + 1)
     {
-        emit AdminRemoved(addr, _admins[addr]);
-        _admins[addr] = 0;
+        emit AdminRemoved(addr, _admins[addr].level);
+        delete _admins[addr];
     }
 
     function addToken(
@@ -180,37 +213,54 @@ contract Housteca
         delete _investors[investor];
     }
 
+    function _getFee(
+        uint minimumFeeAmount,
+        uint feeRatio,
+        uint amount
+    )
+      internal
+      view
+      returns (uint)
+    {
+        return Math.max(minimumFeeAmount, amount.mul(feeRatio).div(RATIO));
+    }
+
     function createInvestmentProposal(
         address borrower,
         string calldata symbol,
-        uint target,
-        uint total,
+        uint downpaymentRatio,
+        uint targetAmount,
         uint totalPayments,
         uint periodicity,
-        uint insurance,
-        uint interestRatio
+        uint insuredPayments,
+        uint interestRatio,
+        uint localNodeFeeAmount,
+        uint houstecaFeeAmount
     )
       external
       isAdmin(ADMIN_ROOT_LEVEL - 2)
     {
-        require(target > 0, "Housteca: Target amount must be greater than zero");
-        require(insurance > 0, "Housteca: The insurance must be greater than zero");
+        require(targetAmount > 0, "Housteca: Target amount must be greater than zero");
         require(interestRatio > 0, "Housteca: The interest ratio must be greater than zero");
         require(totalPayments > 0, "Housteca: The total number of payments must be greater than zero");
-        require(total > target, "Housteca: The total amount must be greater than the target amount");
         require(address(_tokens[symbol]) != address(0), "Housteca: Invalid token symbol");
 
+        Administrator storage admin = _admins[msg.sender];
         _proposals[borrower] = InvestmentProposal({
+            localNode: msg.sender,
             symbol: symbol,
-            target: target,
+            downpaymentRatio: downpaymentRatio,
+            targetAmount: targetAmount,
             totalPayments: totalPayments,
             periodicity: periodicity,
-            created: block.timestamp,
-            insurance: insurance,
-            interestRatio: interestRatio
+            insuredPayments: insuredPayments,
+            interestRatio: interestRatio,
+            localNodeFeeAmount: _getFee(admin.minimumFeeAmount, admin.feeRatio, targetAmount),
+            houstecaFeeAmount: _getFee(_houstecaMinFeeAmount, _houstecaFeeRatio, targetAmount),
+            created: block.timestamp
         });
 
-        emit InvestmentProposalCreated(borrower, symbol, target, insurance, totalPayments, periodicity, interestRatio);
+        emit InvestmentProposalCreated(borrower, symbol, targetAmount, insuredPayments, totalPayments, periodicity, interestRatio);
     }
 
     function removeInvestmentProposal(
@@ -227,28 +277,36 @@ contract Housteca
       external
     {
         InvestmentProposal storage proposal = _proposals[msg.sender];
-        require(proposal.target > 0, "Housteca: There is no investment proposal for this address");
-        require(proposal.created + GRACE_PERIOD_PROPOSAL < block.timestamp, "Housteca: the period to create the investment has expired");
+        require(proposal.targetAmount > 0, "Housteca: There is no investment proposal for this address");
+        require(proposal.created.add(PROPOSAL_GRACE_PERIOD) < block.timestamp, "Housteca: the period to create the investment has expired");
 
         IERC20 token = getToken(proposal.symbol);
         Loan loan = new Loan(
             this,
+            proposal.localNode,
             token,
-            proposal.target,
+            proposal.downpaymentRatio,
+            proposal.targetAmount,
             proposal.totalPayments,
             proposal.periodicity,
-            proposal.insurance,
-            proposal.interestRatio
+            proposal.insuredPayments,
+            proposal.interestRatio,
+            proposal.localNodeFeeAmount,
+            proposal.houstecaFeeAmount
         );
         _loans.push(loan);
         emit InvestmentCreated(
             msg.sender,
+            proposal.localNode,
             proposal.symbol,
-            proposal.target,
+            proposal.downpaymentRatio,
+            proposal.targetAmount,
             proposal.totalPayments,
             proposal.periodicity,
-            proposal.insurance,
-            proposal.interestRatio
+            proposal.insuredPayments,
+            proposal.interestRatio,
+            proposal.localNodeFeeAmount,
+            proposal.houstecaFeeAmount
         );
     }
 }

@@ -3,6 +3,7 @@ pragma solidity 0.5.13;
 import "openzeppelin-solidity/contracts/math/SafeMath.sol";
 import "openzeppelin-solidity/contracts/token/ERC20/IERC20.sol";
 import "openzeppelin-solidity/contracts/token/ERC777/IERC777Recipient.sol";
+import "openzeppelin-solidity/contracts/cryptography/ECDSA.sol";
 import "./Housteca.sol";
 
 
@@ -10,8 +11,14 @@ contract Loan is IERC777Recipient
 {
     ///////////// Constants /////////////
 
+    /// Period of time for the investors to send funds to the contract
     uint constant public FUNDING_PERIOD = 90 days;
+    /// Period of time for the borrower to deposit the initial stake
     uint constant public INITIAL_STAKE_PERIOD = 15 days;
+    /// The number of seconds to make the next payment
+    uint constant public PERIODICITY = 30 days;
+    /// The number to multiply ratios for (solidity doesn't store floating point numbers)
+    uint constant public RATIO = 10000;
 
 
     ///////////// Libraries /////////////
@@ -23,11 +30,13 @@ contract Loan is IERC777Recipient
 
     enum Status
     {
-        AWAITING_STAKE,     // the loan is waiting for the borrower to deposit the stake
+        AWAITING_STAKE,         // the loan is waiting for the borrower to deposit the stake
         FUNDING,                // the loan is expecting to receive funds
-        ACTIVE,                 // the loan got enough funding and has to be paid
+        AWAITING_SIGNATURES,    // the loan got enough funding and now requires the signatures
+        ACTIVE,                 // the loan got the signatures and has to be paid
         FINISHED,               // the load has been successfully paid and no longer supports operations
         UNCOMPLETED,            // the loan did not get enough funding and no longer supports operations
+        DEFAULT,                // the borrower did not pay on time, but there is still insurance left
         BANKRUPT                // the loan got enough funding but the borrower did not pay on time
     }
 
@@ -39,61 +48,71 @@ contract Loan is IERC777Recipient
 
     ///////////// Attributes /////////////
 
-    /// user that buys a house
+    /// User that buys a house
     address public _borrower;
-    /// token used to pay and fund
+    /// Token used to pay and fund
     IERC20 public _token;
-    /// current status of the contract
+    /// Current status of the contract
     Status public _status;
-    /// address of Housteca's main contract
+    /// Address of Housteca's main contract
     Housteca public _housteca;
-    /// map to keep track of investor's funding
-    mapping(address => uint) public _balances;
-    /// map to keep track of the times each investor collected
-    mapping(address => uint) public _timesCollected;
-    /// amount investors have to reach
-    uint public _target;
-    /// number of payments to be made to return the initial investment
+    /// Address of the local node
+    address _localNode;
+    /// Map to keep track of investor's funding
+    mapping(address => uint) public _investments;
+    /// Map to keep track of the timestamp when each investor collected his earnings
+    mapping(address => uint) public _lastCollected;
+    /// Amount investors have to reach
+    uint public _targetAmount;
+    /// Number of payments to be made to return the initial investment
     uint public _totalPayments;
-    /// timestamp of the next payment
+    /// Timestamp of the next payment
     uint public _nextPayment;
-    /// number of times the borrower paid the debt
-    uint public _timesPaid;
-    /// maximum number of seconds between consecutive payments
-    uint public _periodicity;
-    /// timestamp that exposes the maximum date available to fund this contract
+    /// Amount the borrower already paid
+    uint public _paidAmount;
+    /// Timestamp that exposes the maximum date available to send the initial stake to this contract
+    uint public _stakeDepositDeadline;
+    /// Timestamp that exposes the maximum date available to fund this contract
     uint public _fundingDeadline;
-    /// timestamp that exposes the maximum date available to send the initial stake to this contract
-    uint public _initialStakeDeadline;
-    /// amount of tokens available as unpaid insurance
-    uint public _insurance;
-    /// percentage of interests for investors
+    /// Timestamp that exposes the maximum date available to get the signatures
+    uint public _signingDeadline;
+    /// Number of payments that will be given as insurance
+    uint public _insuredPayments;
+    /// Ratio of the house already provided by the borrower
+    uint public _downpaymentRatio;
+    /// Ratio of interests for investors
     uint public _interestRatio;
+    /// Total invested amount
+    uint public _investedAmount;
+    /// Fee for the local node
+    uint public _localNodeFeeAmount;
+    /// Fee for Housteca
+    uint public _houstecaFeeAmount;
+    /// Extra amount for the investors taken from the stake in case of unsuccessful events
+    uint public _extraAmount;
+    /// Amount of insurance left
+    uint public _insuranceAmount;
+    /// Signature of the local node
+    bytes public _localNodeSignature;
+    /// Signature of the borrower;
+    bytes public _borrowerSignature;
+    /// Hash of the document that proves the actual acquisition of the property
+    bytes32 public _documentHash;
 
 
     ///////////// Modifiers /////////////
 
-    modifier checkIsInvestor()
-    {
-        require(isInvestor(msg.sender), "Housteca Loan: Only an investor can perform this operation");
-        _;
-    }
-
+    /// Checks if the contract is in the given status.
     modifier checkStatus(Status status)
     {
         require(_status == status, "Housteca Loan: Invalid status for this operation");
         _;
     }
 
-    modifier checkIsBorrower()
-    {
-        require(isBorrower(msg.sender), "Housteca Loan: Only the borrower can perform this operation");
-        _;
-    }
-
 
     ///////////// View functions /////////////
 
+    /// Checks if msg.sender is the borrower of this loan.
     function isBorrower(
         address addr
     )
@@ -104,7 +123,19 @@ contract Loan is IERC777Recipient
         return addr == _borrower;
     }
 
-    function isInvestor(
+    /// Checks if msg.sender is the local node.
+    function isLocalNode(
+        address addr
+    )
+      public
+      view
+      returns (bool)
+    {
+        return addr == _localNode;
+    }
+
+    /// Checks if msg.sender is a Housteca's verified investor.
+    function isVerifiedInvestor(
         address addr
     )
       public
@@ -114,62 +145,44 @@ contract Loan is IERC777Recipient
         return _housteca._investors(addr);
     }
 
-    function balance()
+    /// Gets the initial amount the borrower will have to transfer to this contract as stake.
+    function initialStakeAmount()
       public
       view
       returns (uint)
     {
-        return _token.balanceOf(address(this)).sub(_balances[_borrower]);
+        return _houstecaFeeAmount.add(_localNodeFeeAmount);
     }
 
-    function initialStake()
+    /// Gets the total amount the borrower will have to pay
+    function totalAmount()
       public
       view
       returns (uint)
     {
-        return _target.div(10);
+        // TODO: this is probably wrong
+        return _targetAmount.add(_targetAmount.mul(_interestRatio).div(RATIO));
     }
 
-    function total()
-      public
-      view
-      returns (uint)
-    {
-        return _target.mul(_interestRatio).div(100);
-    }
-
+    /// Gets the amount to pay for each month.
     function paymentAmount()
       public
       view
       returns (uint)
     {
-        return total().div(_totalPayments);
+        return totalAmount().div(_totalPayments);
     }
 
-    function paymentsLeft()
+    /// Gets the ratio of investment for the called.
+    function investmentRatio()
       public
       view
       returns (uint)
     {
-        return _totalPayments.sub(_timesPaid);
+        return _investments[msg.sender].mul(RATIO).div(_targetAmount);
     }
 
-    function totalPaid()
-      public
-      view
-      returns (uint)
-    {
-        return paymentAmount().mul(_timesPaid);
-    }
-
-    function remainingAmountToPay()
-      public
-      view
-      returns (uint)
-    {
-        return total().sub(totalPaid());
-    }
-
+    /// Checks whether the period for the borrower to pay has expired or not.
     function paymentPeriodExpired()
       public
       view
@@ -178,14 +191,25 @@ contract Loan is IERC777Recipient
         return _status == Status.ACTIVE && block.timestamp > _nextPayment;
     }
 
-    function initialStakePeriodExpired()
+    /// Check whether the period to deposit the initial stake has expired or not.
+    function stakeDepositPeriodExpired()
       public
       view
       returns (bool)
     {
-        return _status == Status.AWAITING_STAKE && block.timestamp > _initialStakeDeadline;
+        return _status == Status.AWAITING_STAKE && block.timestamp > _stakeDepositDeadline;
     }
 
+    /// Checks if the contract has been signed on time by the borrower and the local node.
+    function signingPeriodExpired()
+      public
+      view
+      returns (bool)
+    {
+        return _status == Status.AWAITING_SIGNATURES && block.timestamp > _signingDeadline;
+    }
+
+    /// Checks if the funding period has expired.
     function fundingPeriodExpired()
       public
       view
@@ -194,12 +218,18 @@ contract Loan is IERC777Recipient
         return _status == Status.AWAITING_STAKE && block.timestamp > _fundingDeadline;
     }
 
+    /// Checks if this contract should be updated.
     function shouldUpdate()
       public
       view
       returns (bool)
     {
-        return fundingPeriodExpired() || paymentPeriodExpired();
+        return (
+            stakeDepositPeriodExpired() ||
+            signingPeriodExpired()      ||
+            fundingPeriodExpired()      ||
+            paymentPeriodExpired()
+        );
     }
 
 
@@ -207,48 +237,67 @@ contract Loan is IERC777Recipient
 
     constructor(
         Housteca housteca,
+        address localNode,
         IERC20 token,
-        uint target,
+        uint downpaymentRatio,
+        uint targetAmount,
         uint totalPayments,
         uint periodicity,
-        uint insurance,
-        uint interestRatio
+        uint insuredPayments,
+        uint interestRatio,
+        uint localNodeFeeAmount,
+        uint houstecaFeeAmount
     )
       public
     {
         _housteca = housteca;
-        _target = target;
+        _localNode = localNode;
         _token = token;
+        _downpaymentRatio = downpaymentRatio;
+        _targetAmount = targetAmount;
         _totalPayments = totalPayments;
-        _periodicity = periodicity;
-        _insurance = insurance;
+        _insuredPayments = insuredPayments;
         _interestRatio = interestRatio;
+        _localNodeFeeAmount = localNodeFeeAmount;
+        _houstecaFeeAmount = houstecaFeeAmount;
         _borrower = msg.sender;
-        _initialStakeDeadline = block.timestamp.add(INITIAL_STAKE_PERIOD);
+        _stakeDepositDeadline = block.timestamp.add(INITIAL_STAKE_PERIOD);
         _status = Status.AWAITING_STAKE;
     }
 
-    function _sendInitialStake(address from, uint amount)
+    /// Internal function used to handle the received initial stake.
+    /// It transitions to the ACTIVE status.
+    function _sendInitialStake(
+        address from,
+        uint amount
+    )
       internal
       checkStatus(Status.AWAITING_STAKE)
     {
         require(isBorrower(from), "Housteca Loan: Only the borrower can deposit the initial stake");
-        require(amount == initialStake(), "Housteca Loan: invalid initial stake amount");
+        require(amount == initialStakeAmount(), "Housteca Loan: invalid initial stake amount");
+
         _fundingDeadline = block.timestamp.add(FUNDING_PERIOD);
         changeStatus(Status.ACTIVE);
     }
 
+    /// Sends the initial stake.
+    /// Only the borrower can perform this operation.
+    /// This function is only used for pure ERC20 tokens.
     function sendInitialStake()
       external
     {
-        uint amount = initialStake();
+        require(isBorrower(msg.sender), "Housteca Loan: Only the borrower can perform this operation");
+        uint amount = initialStakeAmount();
         require(_token.transferFrom(_borrower, address(this), amount), "Housteca Loan: Token transfer failed");
+
         _sendInitialStake(msg.sender, amount);
     }
 
 
     ///////////// Status FUNDING /////////////
 
+    /// Internal function used to handle an investment to this loan.
     function _invest(
         address investor,
         uint amount
@@ -256,12 +305,16 @@ contract Loan is IERC777Recipient
       internal
       checkStatus(Status.FUNDING)
     {
-        require(isInvestor(investor), "Housteca Loan: An investor is required");
-        require(balance() <= _target, "Housteca Loan: Amount sent over required one");
+        require(isVerifiedInvestor(investor), "Housteca Loan: An investor is required");
 
-        _balances[msg.sender] = _balances[msg.sender].add(amount);
+        _investedAmount = _investedAmount.add(amount);
+        require(_investedAmount <= _targetAmount, "Housteca Loan: Amount sent over required one");
+
+        _investments[msg.sender] = _investments[msg.sender].add(amount);
     }
 
+    /// A Housteca's validated investor invest in this loan.
+    /// This function is only used for pure ERC20 tokens.
     function invest(
         uint amount
     )
@@ -272,78 +325,180 @@ contract Loan is IERC777Recipient
         _invest(msg.sender, amount);
     }
 
+    /// The investor takes his investment back.
+    /// This can happen for two reasons:
+    ///     1. He changed his mind during the FUNDING period.
+    ///     2. The loan is in the UNCOMPLETED status.
+    ///
+    /// The investor might take extra amount in the second case.
     function collectInvestment()
       external
     {
         require(_status == Status.FUNDING || _status == Status.UNCOMPLETED, "Housteca Loan: Invalid status");
+        require(_investments[msg.sender] > 0, "Housteca Loan: No amount invested");
 
-        uint investedAmount = _balances[msg.sender];
-        require(investedAmount > 0, "Housteca Loan: Not amount invested");
-
-        _balances[msg.sender] = 0;
-        require(_token.transfer(msg.sender, investedAmount), "Housteca Loan: Token transfer failed");
+        uint extraAmount = _extraAmount.mul(investmentRatio()).div(RATIO);
+        uint amount = _investedAmount.add(extraAmount);
+        _investments[msg.sender] = 0;
+        _investedAmount = _investedAmount.sub(amount);
+        _transfer(msg.sender, amount);
     }
 
+
+    ///////////// Status AWAITING_SIGNATURES /////////////
+
+    /// Submits the hash of the document that proofs the acquisition of the property
+    function submitDocumentHash(
+        bytes32 documentHash
+    )
+      external
+      checkStatus(Status.AWAITING_SIGNATURES)
+    {
+        require(_borrowerSignature.length == 0 || _localNodeSignature.length == 0,
+            "Housteca Loan: Both borrower and the local node already signed the document");
+        _documentHash = documentHash;
+        _localNodeSignature.length = 0;
+        _borrowerSignature.length = 0;
+    }
+
+    /// The local node decided to abort the process.
+    /// The borrower looses the stake, and Housteca's fee goes to the investors.
+    function abortLoan()
+      external
+    {
+        require(isLocalNode(msg.sender), "Housteca Loan: Only the local node can perform this operation");
+
+        changeStatus(Status.UNCOMPLETED);
+        _transferUnsafe(_localNode, _localNodeFeeAmount);
+        _extraAmount = _extraAmount.add(_houstecaFeeAmount);
+    }
+
+    /// Check the document has been actually signed
+    function checkDocumentSignature(
+        bytes memory signature,
+        address addr
+    )
+      public
+      returns (bool)
+    {
+        bytes memory prefix = "\x19Ethereum Signed Message:\n32";
+        bytes32 prefixedHash = keccak256(abi.encodePacked(prefix, _documentHash));
+        return ECDSA.recover(prefixedHash, signature) == addr;
+    }
+
+    /// Submits the signature of the document using the private key
+    function signDocument(
+        bytes calldata signature
+    )
+      external
+      checkStatus(Status.AWAITING_SIGNATURES)
+    {
+        require(checkDocumentSignature(signature, msg.sender), "Housteca Loan: Invalid signature");
+
+        if (isBorrower(msg.sender)) {
+            _borrowerSignature = signature;
+        } else if (isLocalNode(msg.sender)) {
+            _localNodeSignature = signature;
+        } else {
+            revert("Housteca Loan: Only the borrower and the local node can perform this operation");
+        }
+    }
+
+    /// The local node takes his funds after all signatures are OK.
     function collectAllFunds()
       external
-      checkIsBorrower
-      checkStatus(Status.FUNDING)
+      checkStatus(Status.AWAITING_SIGNATURES)
     {
-        require(balance() == _target, "Housteca Loan: Not enough funds to collect");
+        require(_borrowerSignature.length > 0 && _localNodeSignature.length > 0, "Housteca Locan: Signatures not ready");
+        require(isLocalNode(msg.sender), "Housteca Locan: Only the borrower can perform this operation");
 
+
+        // TODO: create the tokens and transfer a few to the _borrower
+        // NOTE: the amount to transfer is given by the _downpaymentRatio variable
+        _insuranceAmount = paymentAmount().mul(_insuredPayments);
+        uint amountToTransfer = _targetAmount.sub(_insuranceAmount);
+        _nextPayment = block.timestamp.add(PERIODICITY);
         changeStatus(Status.ACTIVE);
-        _nextPayment = block.timestamp.add(_periodicity);
-        require(_token.transfer(_borrower, _target), "Housteca Loan: Token transfer failed");
+        // This is important: funds are transferred to the local node, not the borrower
+        _transfer(_localNode, amountToTransfer);
     }
 
 
-    ///////////// Status ACTIVE /////////////
+    ///////////// Status ACTIVE - DEFAULT - FINISHED - BANKRUPT /////////////
 
+    /// Generic function used by the borrower to pay
     function _pay(
         address addr,
         uint amount
     )
       internal
-      checkStatus(Status.ACTIVE)
     {
+        require(_status == Status.ACTIVE || _status == Status.DEFAULT,
+            "Housteca Loan: Cannot perform this operation in the current status");
         require(addr == _borrower, "Housteca Loan: Only the borrower can pay");
         require(amount == paymentAmount(), "Housteca Loan: Invalid amount to pay");
-        require(_nextPayment < block.timestamp.add(_periodicity), "Housteca Loan: it is too soon to pay");
+        require(_nextPayment < block.timestamp.add(PERIODICITY), "Housteca Loan: it is too soon to pay");
 
-        _timesPaid += 1;
-        if (_timesPaid >= _totalPayments) {
+        if (_status != Status.ACTIVE) {
+            changeStatus(Status.ACTIVE);
+        }
+
+        uint total = totalAmount();
+        _paidAmount = _paidAmount.add(amount);
+        uint paidAmountPlusInsurance = _paidAmount.add(_insuranceAmount);
+        if (paidAmountPlusInsurance >= total) {
             changeStatus(Status.FINISHED);
             _nextPayment = 0;
+            _insuranceAmount = 0;
+            if (paidAmountPlusInsurance > total) {
+                // If for whatever reason the total amount actually paid is greater than the one
+                // it should have paid, we transfer it to the borrower
+                uint diff = paidAmountPlusInsurance.sub(total);
+                _transferUnsafe(_borrower, diff);
+            }
         } else {
-            _nextPayment = _nextPayment.add(_periodicity);
+            _nextPayment = _nextPayment.add(PERIODICITY);
         }
     }
 
+    /// Pure ERC20 function used by the borrower to pay
     function pay(
         uint amount
     )
       external
     {
-        require(_token.transferFrom(_borrower, address(this), amount), "Housteca Loan: Token transfer failed");
+        require(_token.transferFrom(msg.sender, address(this), amount), "Housteca Loan: Token transfer failed");
 
         _pay(msg.sender, amount);
     }
 
+    /// Function used by the investors to collect the earnings
+    /// It only collect one payment, so it will have to be called
+    /// several times to collect all many, if needed
     function collectEarnings()
       external
-      checkIsInvestor
     {
-        uint timesCollected = _timesCollected[msg.sender];
-        require(timesCollected < _timesPaid, "Housteca Loan: No amount left to collect for now");
+        require(_investments[msg.sender] > 0, "Housteca Loan: Only an investor can perform this operation");
+        require(
+            _status == Status.FINISHED  ||
+            _status == Status.BANKRUPT  ||
+            _status == Status.ACTIVE    ||
+            _status == Status.DEFAULT,
+            "Housteca Loan: Invalid status for this operation"
+        );
+        require(_lastCollected[msg.sender] < _nextPayment.sub(PERIODICITY), "Housteca Loan: No amount left to collect for now");
 
-        uint amountToCollect = (_timesPaid.sub(timesCollected)).mul(paymentAmount());
-        _timesCollected[msg.sender] = timesCollected.add(1);
-        require(_token.transfer(msg.sender, amountToCollect), "Housteca Loan: Token transfer failed");
+        uint amountToCollect = paymentAmount();
+        if (_status == Status.DEFAULT) {
+            _insuranceAmount = _insuranceAmount.sub(amountToCollect);
+        }
+        _lastCollected[msg.sender] = block.timestamp;
+        _transfer(msg.sender, amountToCollect);
     }
-
 
     ///////////// Status change /////////////
 
+    /// Switches the contract to a new status
     function changeStatus(Status status)
       internal
     {
@@ -351,19 +506,55 @@ contract Loan is IERC777Recipient
         _status = status;
     }
 
+    /// Updates the status of this contract.
+    /// This function can be called by anyone.
     function update()
       public
     {
-        if (initialStakePeriodExpired() || fundingPeriodExpired()) {
+        if (stakeDepositPeriodExpired()) {
+            changeStatus(Status.UNCOMPLETED);
+        } else if (fundingPeriodExpired()) {
+            // the local node should have aborted the contract manually
+            // in this scenario the borrower gets all the stake back
+            _transferUnsafe(_borrower, initialStakeAmount());
             changeStatus(Status.UNCOMPLETED);
         } else if (paymentPeriodExpired()) {
-            changeStatus(Status.BANKRUPT);
+            if (_insuranceAmount < paymentAmount()) {
+                changeStatus(Status.BANKRUPT);
+            } else {
+                changeStatus(Status.DEFAULT);
+                _nextPayment = block.timestamp.add(PERIODICITY);
+            }
         }
     }
 
 
-    ///////////// ERC777 token reception /////////////
+    ///////////// Token functions /////////////
 
+    /// Transfer tokens to the desired address. It does not check if the tokens
+    /// were successfully transferred
+    function _transferUnsafe(
+        address receiver,
+        uint amount
+    )
+      internal
+      returns (bool)
+    {
+        return _token.transfer(receiver, amount);
+    }
+
+    /// Transfer tokens to the desired address.
+    /// Reverts if tokens could not be successfully transferred.
+    function _transfer(
+        address receiver,
+        uint amount
+    )
+      internal
+    {
+        require(_transferUnsafe(receiver, amount), "Housteca Loan: Token transfer failed");
+    }
+
+    /// Function used as a hook when transferring ERC777 tokens
     function tokensReceived(
         address,
         address from,
@@ -374,12 +565,13 @@ contract Loan is IERC777Recipient
     )
       external
     {
+        require(msg.sender == address(_token), "Housteca Loan: This contract does not accept such token");
         require(to == address(this), "Housteca Loan: Invalid ERC777 token receiver");
         if (_status == Status.AWAITING_STAKE) {
             _sendInitialStake(from, amount);
-        } else if (_status == Status.AWAITING_STAKE) {
+        } else if (_status == Status.FUNDING) {
             _invest(from, amount);
-        } else if (_status == Status.ACTIVE) {
+        } else if (_status == Status.ACTIVE || _status == Status.DEFAULT) {
             _pay(from, amount);
         } else {
             revert("Housteca Loan: Cannot accept ERC777 funds in the current state");
