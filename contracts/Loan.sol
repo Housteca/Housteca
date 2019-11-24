@@ -4,6 +4,7 @@ import "openzeppelin-solidity/contracts/math/SafeMath.sol";
 import "openzeppelin-solidity/contracts/token/ERC20/IERC20.sol";
 import "openzeppelin-solidity/contracts/token/ERC777/IERC777Recipient.sol";
 import "openzeppelin-solidity/contracts/cryptography/ECDSA.sol";
+import "openzeppelin-solidity/contracts/introspection/IERC1820Registry.sol";
 import "./Housteca.sol";
 
 
@@ -47,6 +48,10 @@ contract Loan is IERC777Recipient
 
 
     ///////////// Attributes /////////////
+
+    /// Registry for ERC777 tokens
+    IERC1820Registry constant public ERC1820 = IERC1820Registry(0x1820a4B7618BdE71Dce8cdc73aAB6C95905faD24);
+    bytes32 constant public ERC777_TOKENS_RECIPIENT_INTERFACE_HASH = keccak256("ERC777TokensRecipient");
 
     /// User that buys a house
     address public _borrower;
@@ -262,6 +267,9 @@ contract Loan is IERC777Recipient
         _borrower = msg.sender;
         _stakeDepositDeadline = block.timestamp.add(INITIAL_STAKE_PERIOD);
         _status = Status.AWAITING_STAKE;
+
+        // We are dealing with an ERC777 tokens, so we must register the interface
+        ERC1820.setInterfaceImplementer(address(this), ERC777_TOKENS_RECIPIENT_INTERFACE_HASH, address(this));
     }
 
     /// Internal function used to handle the received initial stake.
