@@ -39,7 +39,7 @@ contract Housteca
         uint targetAmount;
         uint totalPayments;
         uint insuredPayments;
-        uint interestRatio;
+        uint interestAmount;
         uint localNodeFeeAmount;
         uint houstecaFeeAmount;
         uint created;
@@ -77,7 +77,7 @@ contract Housteca
         uint insuredPayments,
         uint totalPayments,
         uint periodicity,
-        uint interestRatio
+        uint interestAmount
     );
     event InvestmentProposalRemoved(
         address indexed borrower
@@ -90,7 +90,7 @@ contract Housteca
         uint targetAmount,
         uint totalPayments,
         uint insuredPayments,
-        uint interestRatio,
+        uint interestAmount,
         uint localNodeFeeAmount,
         uint houstecaFeeAmount
     );
@@ -249,13 +249,13 @@ contract Housteca
         uint totalPayments,
         uint periodicity,
         uint insuredPayments,
-        uint interestRatio
+        uint interestAmount
     )
       external
       isAdmin(ADMIN_ROOT_LEVEL - 2)
     {
         require(targetAmount > 0, "Housteca: Target amount must be greater than zero");
-        require(interestRatio > 0, "Housteca: The interest ratio must be greater than zero");
+        require(interestAmount > 0, "Housteca: The interest amount must be greater than zero");
         require(totalPayments > 0, "Housteca: The total number of payments must be greater than zero");
         require(address(_tokens[symbol]) != address(0), "Housteca: Invalid token symbol");
 
@@ -267,13 +267,13 @@ contract Housteca
             targetAmount: targetAmount,
             totalPayments: totalPayments,
             insuredPayments: insuredPayments,
-            interestRatio: interestRatio,
+            interestAmount: interestAmount,
             localNodeFeeAmount: _getFee(admin.minimumFeeAmount, admin.feeRatio, targetAmount),
             houstecaFeeAmount: _getFee(_houstecaMinimumFeeAmount, _houstecaFeeRatio, targetAmount),
             created: block.timestamp
         });
 
-        emit InvestmentProposalCreated(borrower, symbol, targetAmount, insuredPayments, totalPayments, periodicity, interestRatio);
+        emit InvestmentProposalCreated(borrower, symbol, targetAmount, insuredPayments, totalPayments, periodicity, interestAmount);
     }
 
     function removeInvestmentProposal(
@@ -302,7 +302,7 @@ contract Housteca
             proposal.targetAmount,
             proposal.totalPayments,
             proposal.insuredPayments,
-            proposal.interestRatio,
+            proposal.interestAmount,
             proposal.localNodeFeeAmount,
             proposal.houstecaFeeAmount
         );
@@ -315,7 +315,7 @@ contract Housteca
             proposal.targetAmount,
             proposal.totalPayments,
             proposal.insuredPayments,
-            proposal.interestRatio,
+            proposal.interestAmount,
             proposal.localNodeFeeAmount,
             proposal.houstecaFeeAmount
         );

@@ -85,8 +85,8 @@ contract Loan is IERC777Recipient
     uint public _insuredPayments;
     /// Ratio of the house already provided by the borrower
     uint public _downpaymentRatio;
-    /// Ratio of interests for investors
-    uint public _interestRatio;
+    /// Total amount of interest for this loan
+    uint public _interestAmount;
     /// Total invested amount
     uint public _investedAmount;
     /// Fee for the local node
@@ -165,8 +165,7 @@ contract Loan is IERC777Recipient
       view
       returns (uint)
     {
-        // TODO: this is probably wrong
-        return _targetAmount.add(_targetAmount.mul(_interestRatio).div(RATIO));
+        return _targetAmount.add(_interestAmount);
     }
 
     /// Gets the amount to pay for each month.
@@ -248,7 +247,7 @@ contract Loan is IERC777Recipient
         uint targetAmount,
         uint totalPayments,
         uint insuredPayments,
-        uint interestRatio,
+        uint interestAmount,
         uint localNodeFeeAmount,
         uint houstecaFeeAmount
     )
@@ -261,7 +260,7 @@ contract Loan is IERC777Recipient
         _targetAmount = targetAmount;
         _totalPayments = totalPayments;
         _insuredPayments = insuredPayments;
-        _interestRatio = interestRatio;
+        _interestAmount = interestAmount;
         _localNodeFeeAmount = localNodeFeeAmount;
         _houstecaFeeAmount = houstecaFeeAmount;
         _borrower = msg.sender;
