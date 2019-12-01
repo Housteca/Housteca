@@ -1,6 +1,7 @@
 const Housteca = artifacts.require("Housteca");
 const TestERC777Token = artifacts.require("TestERC777Token");
 const TestERC20Token = artifacts.require("TestERC20Token");
+const Property = artifacts.require("Property");
 require('@openzeppelin/test-helpers/configure')({ provider: web3.currentProvider, environment: 'truffle' });
 const { singletons } = require('@openzeppelin/test-helpers');
 
@@ -13,5 +14,8 @@ module.exports = async (deployer, network, accounts) => {
         await deployer.deploy(TestERC20Token);
     }
 
-    await deployer.deploy(Housteca);
+    await deployer.deploy(Property);
+    await deployer.deploy(Housteca, Property.address);
+    const instance = await Property.deployed();
+    await instance.transferOwnership(Housteca.address);
 };

@@ -6,6 +6,7 @@ import "openzeppelin-solidity/contracts/token/ERC777/IERC777Recipient.sol";
 import "openzeppelin-solidity/contracts/cryptography/ECDSA.sol";
 import "openzeppelin-solidity/contracts/introspection/IERC1820Registry.sol";
 import "./Housteca.sol";
+import "./Property.sol";
 
 
 contract Loan is IERC777Recipient
@@ -67,6 +68,8 @@ contract Loan is IERC777Recipient
     mapping(address => uint) public _investments;
     /// Map to keep track of the timestamp when each investor collected his earnings
     mapping(address => uint) public _lastCollected;
+    /// Checks whether the investor collected the property in case of bankrupt or not
+    mapping(address => bool) public _propertyCollected;
     /// Amount investors have to reach
     uint public _targetAmount;
     /// Number of payments to be made to return the initial investment
@@ -83,7 +86,7 @@ contract Loan is IERC777Recipient
     uint public _signingDeadline;
     /// Number of payments that will be given as insurance
     uint public _insuredPayments;
-    /// Ratio of the house already provided by the borrower
+    /// Total price of the property
     uint public _downpaymentRatio;
     /// Total amount of interest for this loan
     uint public _interestAmount;
@@ -139,7 +142,7 @@ contract Loan is IERC777Recipient
         return addr == _localNode;
     }
 
-    /// Checks if msg.sender is a Housteca's verified investor.
+    /// Checks if the address is a Housteca's verified investor.
     function isVerifiedInvestor(
         address addr
     )
@@ -147,7 +150,18 @@ contract Loan is IERC777Recipient
       view
       returns (bool)
     {
-        return _housteca._investors(addr);
+        return _housteca.isInvestor(addr);
+    }
+
+    /// Checks if the address has invested in this contract.
+    function hasInvested(
+        address addr
+    )
+      public
+      view
+      returns (bool)
+    {
+        return _investments[addr] > 0;
     }
 
     /// Gets the initial amount the borrower will have to transfer to this contract as stake.
@@ -234,6 +248,15 @@ contract Loan is IERC777Recipient
             fundingPeriodExpired()      ||
             paymentPeriodExpired()
         );
+    }
+
+    // Gets the Property contract
+    function propertyToken()
+      public
+      view
+      returns (Property)
+    {
+        return _housteca._propertyToken();
     }
 
 
@@ -341,7 +364,7 @@ contract Loan is IERC777Recipient
       external
     {
         require(_status == Status.FUNDING || _status == Status.UNCOMPLETED, "Housteca Loan: Invalid status");
-        require(_investments[msg.sender] > 0, "Housteca Loan: No amount invested");
+        require(hasInvested(msg.sender), "Housteca Loan: No amount invested");
 
         uint extraAmount = _extraAmount.mul(investmentRatio()).div(RATIO);
         uint amount = _investedAmount.add(extraAmount);
@@ -410,27 +433,38 @@ contract Loan is IERC777Recipient
         }
     }
 
+    /// Transfers property tokens
+    function _transferProperty(
+        address to,
+        uint amount
+    )
+      internal
+    {
+        bytes32 partition = keccak256(abi.encodePacked(address(this)));
+        propertyToken().transferByPartition(partition, to, amount, new bytes(0));
+    }
+
     /// The local node takes his funds after all signatures are OK.
     function collectAllFunds()
       external
       checkStatus(Status.AWAITING_SIGNATURES)
     {
         require(_borrowerSignature.length > 0 && _localNodeSignature.length > 0, "Housteca Locan: Signatures not ready");
-        require(isLocalNode(msg.sender), "Housteca Locan: Only the borrower can perform this operation");
+        require(isLocalNode(msg.sender), "Housteca Locan: Only the local node can perform this operation");
 
-
-        // TODO: create the tokens and transfer a few to the _borrower
-        // NOTE: the amount to transfer is given by the _downpaymentRatio variable
         _insuranceAmount = paymentAmount().mul(_insuredPayments);
         uint amountToTransfer = _targetAmount.sub(_insuranceAmount);
         _nextPayment = block.timestamp.add(PERIODICITY);
         changeStatus(Status.ACTIVE);
         // This is important: funds are transferred to the local node, not the borrower
         _transfer(_localNode, amountToTransfer);
+        // transfer the tokens to the borrower
+        uint propertyAmount = _downpaymentRatio.mul(10 ** propertyToken().granularity()).div(RATIO);
+        _transferProperty(_borrower, propertyAmount);
     }
 
 
-    ///////////// Status ACTIVE - DEFAULT - FINISHED - BANKRUPT /////////////
+    ///////////// Status ACTIVE - DEFAULT - FINISHED /////////////
 
     /// Generic function used by the borrower to pay
     function _pay(
@@ -448,9 +482,9 @@ contract Loan is IERC777Recipient
             changeStatus(Status.ACTIVE);
         }
 
-        uint total = totalAmount();
         _paidAmount = _paidAmount.add(amount);
         uint paidAmountPlusInsurance = _paidAmount.add(_insuranceAmount);
+        uint total = totalAmount();
         if (paidAmountPlusInsurance >= total) {
             changeStatus(Status.FINISHED);
             _nextPayment = 0;
@@ -479,11 +513,11 @@ contract Loan is IERC777Recipient
 
     /// Function used by the investors to collect the earnings
     /// It only collect one payment, so it will have to be called
-    /// several times to collect all many, if needed
+    /// several times to collect all of them, if needed
     function collectEarnings()
       external
     {
-        require(_investments[msg.sender] > 0, "Housteca Loan: Only an investor can perform this operation");
+        require(hasInvested(msg.sender), "Housteca Loan: Only an investor can perform this operation");
         require(
             _status == Status.FINISHED  ||
             _status == Status.BANKRUPT  ||
@@ -493,12 +527,33 @@ contract Loan is IERC777Recipient
         );
         require(_lastCollected[msg.sender] < _nextPayment.sub(PERIODICITY), "Housteca Loan: No amount left to collect for now");
 
-        uint amountToCollect = paymentAmount();
-        if (_status == Status.DEFAULT) {
+        uint amountToCollect = paymentAmount().mul(investmentRatio()).div(RATIO);
+        if (_paidAmount >= amountToCollect) {
+            _paidAmount = _paidAmount.sub(amountToCollect);
+            // TODO calculate the tokens to transfer to the borrower dynamically with compound interest
+        } else if (_status == Status.DEFAULT && _insuranceAmount >= amountToCollect) {
             _insuranceAmount = _insuranceAmount.sub(amountToCollect);
+        } else {
+            revert("Housteca Loan: Not enough funds to collect");
         }
         _lastCollected[msg.sender] = block.timestamp;
         _transfer(msg.sender, amountToCollect);
+    }
+
+
+    ///////////// Status BANKRUPT /////////////
+
+    function collectProperty()
+      external
+    {
+        require(hasInvested(msg.sender), "Housteca Loan: Only investors can perform this operation");
+        require(!_propertyCollected[msg.sender], "Housteca Loan: You have already collected the property tokens");
+
+        uint totalTokens = 10 ** propertyToken().granularity();
+        uint availableTokens = totalTokens.sub(_downpaymentRatio.mul(totalTokens).div(RATIO));
+        uint propertyAmount = availableTokens.mul(investmentRatio());
+        _propertyCollected[msg.sender] = true;
+        _transferProperty(msg.sender, propertyAmount);
     }
 
     ///////////// Status change /////////////

@@ -1,6 +1,7 @@
 pragma solidity 0.5.13;
 
 import "./Loan.sol";
+import "./Property.sol";
 import "openzeppelin-solidity/contracts/math/Math.sol";
 import "openzeppelin-solidity/contracts/math/SafeMath.sol";
 
@@ -104,6 +105,7 @@ contract Housteca
     mapping (address => InvestmentProposal) public _proposals;
     uint public _houstecaMinimumFeeAmount;
     uint public _houstecaFeeRatio;
+    Property public _propertyToken;
     Loan[] public _loans;
 
 
@@ -131,13 +133,24 @@ contract Housteca
         return tokenAddress;
     }
 
+    function isInvestor(
+        address addr
+    )
+      public
+      view
+      returns (bool)
+    {
+        return _investors[addr];
+    }
+
 
     ///////////// Admin functions /////////////
 
-    constructor()
+    constructor(address propertyToken)
       public
     {
         _admins[msg.sender].level = ADMIN_ROOT_LEVEL;
+        _propertyToken = Property(propertyToken);
         emit AdminAdded(msg.sender, ADMIN_ROOT_LEVEL);
     }
 
@@ -257,6 +270,7 @@ contract Housteca
         require(targetAmount > 0, "Housteca: Target amount must be greater than zero");
         require(interestAmount > 0, "Housteca: The interest amount must be greater than zero");
         require(totalPayments > 0, "Housteca: The total number of payments must be greater than zero");
+        require(downpaymentRatio < RATIO, "Housteca: The borrower cannot already own 100% of the property");
         require(address(_tokens[symbol]) != address(0), "Housteca: Invalid token symbol");
 
         Administrator storage admin = _admins[msg.sender];
@@ -307,6 +321,12 @@ contract Housteca
             proposal.houstecaFeeAmount
         );
         _loans.push(loan);
+        _propertyToken.issueByPartition(
+            keccak256(abi.encodePacked(address(loan))),
+            address(loan),
+            10 ** _propertyToken.granularity(),
+            new bytes(0)
+        );
         emit InvestmentCreated(
             msg.sender,
             proposal.localNode,
