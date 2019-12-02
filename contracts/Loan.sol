@@ -307,7 +307,7 @@ contract Loan is IERC777Recipient
         require(amount == initialStakeAmount(), "Housteca Loan: invalid initial stake amount");
 
         _fundingDeadline = block.timestamp.add(FUNDING_PERIOD);
-        changeStatus(Status.ACTIVE);
+        _changeStatus(Status.ACTIVE);
     }
 
     /// Sends the initial stake.
@@ -396,7 +396,7 @@ contract Loan is IERC777Recipient
     {
         require(isLocalNode(msg.sender), "Housteca Loan: Only the local node can perform this operation");
 
-        changeStatus(Status.UNCOMPLETED);
+        _changeStatus(Status.UNCOMPLETED);
         _transferUnsafe(_localNode, _localNodeFeeAmount);
         _extraAmount = _extraAmount.add(_houstecaFeeAmount);
     }
@@ -455,7 +455,7 @@ contract Loan is IERC777Recipient
         _insuranceAmount = paymentAmount().mul(_insuredPayments);
         uint amountToTransfer = _targetAmount.sub(_insuranceAmount);
         _nextPayment = block.timestamp.add(PERIODICITY);
-        changeStatus(Status.ACTIVE);
+        _changeStatus(Status.ACTIVE);
         // This is important: funds are transferred to the local node, not the borrower
         _transfer(_localNode, amountToTransfer);
         // transfer the tokens to the borrower
@@ -479,14 +479,14 @@ contract Loan is IERC777Recipient
         require(_nextPayment < block.timestamp.add(PERIODICITY), "Housteca Loan: it is too soon to pay");
 
         if (_status != Status.ACTIVE) {
-            changeStatus(Status.ACTIVE);
+            _changeStatus(Status.ACTIVE);
         }
 
         _paidAmount = _paidAmount.add(amount);
         uint paidAmountPlusInsurance = _paidAmount.add(_insuranceAmount);
         uint total = totalAmount();
         if (paidAmountPlusInsurance >= total) {
-            changeStatus(Status.FINISHED);
+            _changeStatus(Status.FINISHED);
             _nextPayment = 0;
             _insuranceAmount = 0;
             if (paidAmountPlusInsurance > total) {
@@ -559,7 +559,7 @@ contract Loan is IERC777Recipient
     ///////////// Status change /////////////
 
     /// Switches the contract to a new status
-    function changeStatus(Status status)
+    function _changeStatus(Status status)
       internal
     {
         emit StatusChanged(_status, status);
@@ -572,17 +572,17 @@ contract Loan is IERC777Recipient
       public
     {
         if (stakeDepositPeriodExpired()) {
-            changeStatus(Status.UNCOMPLETED);
+            _changeStatus(Status.UNCOMPLETED);
         } else if (fundingPeriodExpired()) {
             // the local node should have aborted the contract manually
             // in this scenario the borrower gets all the stake back
             _transferUnsafe(_borrower, initialStakeAmount());
-            changeStatus(Status.UNCOMPLETED);
+            _changeStatus(Status.UNCOMPLETED);
         } else if (paymentPeriodExpired()) {
             if (_insuranceAmount < paymentAmount()) {
-                changeStatus(Status.BANKRUPT);
+                _changeStatus(Status.BANKRUPT);
             } else {
-                changeStatus(Status.DEFAULT);
+                _changeStatus(Status.DEFAULT);
                 _nextPayment = block.timestamp.add(PERIODICITY);
             }
         }
