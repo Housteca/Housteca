@@ -112,7 +112,7 @@ contract Housteca
 
     ///////////// Modifiers /////////////
 
-    modifier isAdmin(uint8 level)
+    modifier hasPermissions(uint8 level)
     {
         require(_admins[msg.sender].level >= level, "Housteca: Insufficient administrator privileges");
         _;
@@ -144,6 +144,16 @@ contract Housteca
         return _investors[addr];
     }
 
+    function isAdmin(
+        address addr
+    )
+      public
+      view
+      returns (bool)
+    {
+        return _admins[addr].level > 0;
+    }
+
 
     ///////////// Admin functions /////////////
 
@@ -162,7 +172,7 @@ contract Housteca
         uint feeRatio
     )
       external
-      isAdmin(ADMIN_ROOT_LEVEL - 1)
+      hasPermissions(ADMIN_ROOT_LEVEL - 1)
     {
         require(level > 0, "Housteca: Must provide a level greater than zero");
 
@@ -178,7 +188,7 @@ contract Housteca
         address addr
     )
       external
-      isAdmin(_admins[addr].level + 1)
+      hasPermissions(_admins[addr].level + 1)
     {
         emit AdminRemoved(addr, _admins[addr].level);
         delete _admins[addr];
@@ -188,7 +198,7 @@ contract Housteca
         uint houstecaMinimumFeeAmount
     )
       external
-      isAdmin(ADMIN_ROOT_LEVEL - 1)
+      hasPermissions(ADMIN_ROOT_LEVEL - 1)
     {
         _houstecaMinimumFeeAmount = houstecaMinimumFeeAmount;
     }
@@ -197,7 +207,7 @@ contract Housteca
         uint houstecaFeeRatio
     )
       external
-      isAdmin(ADMIN_ROOT_LEVEL - 1)
+      hasPermissions(ADMIN_ROOT_LEVEL - 1)
     {
         _houstecaFeeRatio = houstecaFeeRatio;
     }
@@ -207,7 +217,7 @@ contract Housteca
         address tokenAddress
     )
       external
-      isAdmin(ADMIN_ROOT_LEVEL - 1)
+      hasPermissions(ADMIN_ROOT_LEVEL - 1)
     {
         emit TokenAdded(symbol, tokenAddress);
         _tokens[symbol] = tokenAddress;
@@ -217,7 +227,7 @@ contract Housteca
         string calldata symbol
     )
       external
-      isAdmin(ADMIN_ROOT_LEVEL - 1)
+      hasPermissions(ADMIN_ROOT_LEVEL - 1)
     {
         emit TokenRemoved(symbol, address(_tokens[symbol]));
         delete _tokens[symbol];
@@ -227,7 +237,7 @@ contract Housteca
         address investor
     )
       external
-      isAdmin(ADMIN_ROOT_LEVEL - 2)
+      hasPermissions(ADMIN_ROOT_LEVEL - 2)
     {
         emit InvestorAdded(investor);
         _investors[investor] = true;
@@ -237,7 +247,7 @@ contract Housteca
         address investor
     )
       external
-      isAdmin(ADMIN_ROOT_LEVEL - 2)
+      hasPermissions(ADMIN_ROOT_LEVEL - 2)
     {
         emit InvestorRemoved(investor);
         delete _investors[investor];
@@ -267,7 +277,7 @@ contract Housteca
         uint perPaymentInterestRatio
     )
       external
-      isAdmin(ADMIN_ROOT_LEVEL - 1)
+      hasPermissions(ADMIN_ROOT_LEVEL - 1)
     {
         require(targetAmount > 0, "Housteca: Target amount must be greater than zero");
         require(paymentAmount > 0, "Housteca: The payment amount must be greater than zero");
@@ -297,7 +307,7 @@ contract Housteca
         address borrower
     )
       external
-      isAdmin(ADMIN_ROOT_LEVEL - 2)
+      hasPermissions(ADMIN_ROOT_LEVEL - 2)
     {
         emit InvestmentProposalRemoved(borrower);
         delete _proposals[borrower];
