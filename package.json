@@ -21,6 +21,6 @@
     "migrate": "rm -rf build/ && truffle migrate",
     "lint": "solium -d contracts",
     "test": "truffle test",
-    "ganache": "ganache-cli -p 7545 -i 5777"
+    "ganache": "ganache-cli -d -p 7545 -i 5777 -m \"bone buddy apple lens wait evolve frame wish tragic east intact broken\""
   }
 }
