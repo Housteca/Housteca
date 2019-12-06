@@ -20,7 +20,7 @@ contract Loan is IERC777Recipient
     /// The number of seconds to make the next payment
     uint constant public PERIODICITY = 30 days;
     /// The number to multiply ratios for (solidity doesn't store floating point numbers)
-    uint constant public RATIO = 10000;
+    uint constant public RATIO = 10 ** 18;
 
 
     ///////////// Libraries /////////////
@@ -66,18 +66,22 @@ contract Loan is IERC777Recipient
     address _localNode;
     /// Map to keep track of investor's funding
     mapping(address => uint) public _investments;
-    /// Map to keep track of the timestamp when each investor collected his earnings
-    mapping(address => uint) public _lastCollected;
+    /// Map to keep track of the times each investor collected his earnings
+    mapping(address => uint) public _timesCollected;
+    /// Map to keep track of the times each investor collected his earnings from the insurance
+    mapping(address => uint) public _timesCollectedDefault;
     /// Checks whether the investor collected the property in case of bankrupt or not
     mapping(address => bool) public _propertyCollected;
     /// Amount investors have to reach
     uint public _targetAmount;
     /// Number of payments to be made to return the initial investment
     uint public _totalPayments;
+    /// Times the borrower paid
+    uint public _timesPaid;
+    /// Times the contract is in default State
+    uint public _timesDefault;
     /// Timestamp of the next payment
     uint public _nextPayment;
-    /// Amount the borrower already paid
-    uint public _paidAmount;
     /// Timestamp that exposes the maximum date available to send the initial stake to this contract
     uint public _stakeDepositDeadline;
     /// Timestamp that exposes the maximum date available to fund this contract
@@ -86,11 +90,15 @@ contract Loan is IERC777Recipient
     uint public _signingDeadline;
     /// Number of payments that will be given as insurance
     uint public _insuredPayments;
-    /// Total price of the property
+    /// Percentage of the property already owned by the borrower
     uint public _downpaymentRatio;
-    /// Total amount of interest for this loan
-    uint public _interestAmount;
-    /// Total invested amount
+    /// Amount paid for every scheduled payment
+    uint public _paymentAmount;
+    /// Interest paid per payment
+    uint public _perPaymentInterestRatio;
+    /// Total amount of the property that has been paid by returning the loan
+    uint public _amortizedAmount;
+    /// Total amount deposited by the investors
     uint public _investedAmount;
     /// Fee for the local node
     uint public _localNodeFeeAmount;
@@ -98,8 +106,6 @@ contract Loan is IERC777Recipient
     uint public _houstecaFeeAmount;
     /// Extra amount for the investors taken from the stake in case of unsuccessful events
     uint public _extraAmount;
-    /// Amount of insurance left
-    uint public _insuranceAmount;
     /// Signature of the local node
     bytes public _localNodeSignature;
     /// Signature of the borrower;
@@ -179,16 +185,7 @@ contract Loan is IERC777Recipient
       view
       returns (uint)
     {
-        return _targetAmount.add(_interestAmount);
-    }
-
-    /// Gets the amount to pay for each month.
-    function paymentAmount()
-      public
-      view
-      returns (uint)
-    {
-        return totalAmount().div(_totalPayments);
+        return _paymentAmount.mul(_totalPayments);
     }
 
     /// Gets the ratio of investment for the called.
@@ -259,6 +256,15 @@ contract Loan is IERC777Recipient
         return _housteca._propertyToken();
     }
 
+    /// Gets the partition of the Property's security token
+    function partition()
+      public
+      view
+      returns (bytes32)
+    {
+        return keccak256(abi.encodePacked(address(this)));
+    }
+
 
     ///////////// Status AWAITING_STAKE /////////////
 
@@ -270,7 +276,8 @@ contract Loan is IERC777Recipient
         uint targetAmount,
         uint totalPayments,
         uint insuredPayments,
-        uint interestAmount,
+        uint paymentAmount,
+        uint perPaymentInterestRatio,
         uint localNodeFeeAmount,
         uint houstecaFeeAmount
     )
@@ -283,7 +290,8 @@ contract Loan is IERC777Recipient
         _targetAmount = targetAmount;
         _totalPayments = totalPayments;
         _insuredPayments = insuredPayments;
-        _interestAmount = interestAmount;
+        _paymentAmount = paymentAmount;
+        _perPaymentInterestRatio = perPaymentInterestRatio;
         _localNodeFeeAmount = localNodeFeeAmount;
         _houstecaFeeAmount = houstecaFeeAmount;
         _borrower = msg.sender;
@@ -440,8 +448,7 @@ contract Loan is IERC777Recipient
     )
       internal
     {
-        bytes32 partition = keccak256(abi.encodePacked(address(this)));
-        propertyToken().transferByPartition(partition, to, amount, new bytes(0));
+        propertyToken().transferByPartition(partition(), to, amount, new bytes(0));
     }
 
     /// The local node takes his funds after all signatures are OK.
@@ -452,8 +459,8 @@ contract Loan is IERC777Recipient
         require(_borrowerSignature.length > 0 && _localNodeSignature.length > 0, "Housteca Locan: Signatures not ready");
         require(isLocalNode(msg.sender), "Housteca Locan: Only the local node can perform this operation");
 
-        _insuranceAmount = paymentAmount().mul(_insuredPayments);
-        uint amountToTransfer = _targetAmount.sub(_insuranceAmount);
+        uint insuranceAmount = _paymentAmount.mul(_insuredPayments);
+        uint amountToTransfer = _targetAmount.sub(insuranceAmount);
         _nextPayment = block.timestamp.add(PERIODICITY);
         _changeStatus(Status.ACTIVE);
         // This is important: funds are transferred to the local node, not the borrower
@@ -475,29 +482,28 @@ contract Loan is IERC777Recipient
     {
         require(_status == Status.ACTIVE || _status == Status.DEFAULT, "Housteca Loan: Cannot perform this operation in the current status");
         require(addr == _borrower, "Housteca Loan: Only the borrower can pay");
-        require(amount == paymentAmount(), "Housteca Loan: Invalid amount to pay");
+        require(amount == _paymentAmount, "Housteca Loan: Invalid amount to pay");
         require(_nextPayment < block.timestamp.add(PERIODICITY), "Housteca Loan: it is too soon to pay");
 
-        if (_status != Status.ACTIVE) {
-            _changeStatus(Status.ACTIVE);
-        }
-
-        _paidAmount = _paidAmount.add(amount);
-        uint paidAmountPlusInsurance = _paidAmount.add(_insuranceAmount);
-        uint total = totalAmount();
-        if (paidAmountPlusInsurance >= total) {
+        _timesPaid += 1;
+        uint tokensToTransfer = 0;
+        if (_timesPaid >= _totalPayments) {
+            tokensToTransfer = propertyToken().balanceOfByPartition(partition(), address(this));
+            _amortizedAmount = _targetAmount;
             _changeStatus(Status.FINISHED);
             _nextPayment = 0;
-            _insuranceAmount = 0;
-            if (paidAmountPlusInsurance > total) {
-                // If for whatever reason the total amount actually paid is greater than the one
-                // it should have paid, we transfer it to the borrower
-                uint diff = paidAmountPlusInsurance.sub(total);
-                _transferUnsafe(_borrower, diff);
-            }
         } else {
+            // Switch to ACTIVE if it was in DEFAULT
+            _changeStatus(Status.ACTIVE);
+
             _nextPayment = _nextPayment.add(PERIODICITY);
+            uint remainingNonAmortizedAmount = _targetAmount.sub(_amortizedAmount);
+            uint interestAmount = remainingNonAmortizedAmount.mul(_totalPayments).mul(_perPaymentInterestRatio).div(RATIO);
+            uint amortization = _paymentAmount.sub(interestAmount);
+            _amortizedAmount = _amortizedAmount.add(amortization);
+            tokensToTransfer = amortization.mul(RATIO).div(_targetAmount).mul(10 ** propertyToken().granularity()).div(RATIO);
         }
+        _transferProperty(_borrower, tokensToTransfer);
     }
 
     /// Pure ERC20 function used by the borrower to pay
@@ -525,18 +531,14 @@ contract Loan is IERC777Recipient
             _status == Status.DEFAULT,
             "Housteca Loan: Invalid status for this operation"
         );
-        require(_lastCollected[msg.sender] < _nextPayment.sub(PERIODICITY), "Housteca Loan: No amount left to collect for now");
-
-        uint amountToCollect = paymentAmount().mul(investmentRatio()).div(RATIO);
-        if (_paidAmount >= amountToCollect) {
-            _paidAmount = _paidAmount.sub(amountToCollect);
-            // TODO calculate the tokens to transfer to the borrower dynamically with compound interest
-        } else if (_status == Status.DEFAULT && _insuranceAmount >= amountToCollect) {
-            _insuranceAmount = _insuranceAmount.sub(amountToCollect);
+        uint amountToCollect = _paymentAmount.mul(investmentRatio()).div(RATIO);
+        if (_timesCollected[msg.sender] < _timesPaid) {
+            _timesCollected[msg.sender] += 1;
+        } else if (_timesCollectedDefault[msg.sender] < _timesDefault) {
+            _timesCollectedDefault[msg.sender] += 1;
         } else {
             revert("Housteca Loan: Not enough funds to collect");
         }
-        _lastCollected[msg.sender] = block.timestamp;
         _transfer(msg.sender, amountToCollect);
     }
 
@@ -562,8 +564,10 @@ contract Loan is IERC777Recipient
     function _changeStatus(Status status)
       internal
     {
-        emit StatusChanged(_status, status);
-        _status = status;
+        if (status != _status) {
+            emit StatusChanged(_status, status);
+            _status = status;
+        }
     }
 
     /// Updates the status of this contract.
@@ -579,10 +583,11 @@ contract Loan is IERC777Recipient
             _transferUnsafe(_borrower, initialStakeAmount());
             _changeStatus(Status.UNCOMPLETED);
         } else if (paymentPeriodExpired()) {
-            if (_insuranceAmount < paymentAmount()) {
+            if (_timesDefault >= _insuredPayments) {
                 _changeStatus(Status.BANKRUPT);
             } else {
                 _changeStatus(Status.DEFAULT);
+                _timesDefault += 1;
                 _nextPayment = block.timestamp.add(PERIODICITY);
             }
         }

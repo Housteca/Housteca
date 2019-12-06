@@ -15,7 +15,7 @@ contract Housteca
     /// Number of seconds to keep a proposal alive
     uint constant public PROPOSAL_GRACE_PERIOD = 15 days;
     /// The number to multiply ratios for (solidity doesn't store floating point numbers)
-    uint constant public RATIO = 10000;
+    uint constant public RATIO = 10 ** 18;
 
 
     ///////////// Libraries /////////////
@@ -40,7 +40,8 @@ contract Housteca
         uint targetAmount;
         uint totalPayments;
         uint insuredPayments;
-        uint interestAmount;
+        uint paymentAmount;
+        uint perPaymentInterestRatio;
         uint localNodeFeeAmount;
         uint houstecaFeeAmount;
         uint created;
@@ -78,7 +79,7 @@ contract Housteca
         uint insuredPayments,
         uint totalPayments,
         uint periodicity,
-        uint interestAmount
+        uint paymentAmount
     );
     event InvestmentProposalRemoved(
         address indexed borrower
@@ -91,7 +92,7 @@ contract Housteca
         uint targetAmount,
         uint totalPayments,
         uint insuredPayments,
-        uint interestAmount,
+        uint paymentAmount,
         uint localNodeFeeAmount,
         uint houstecaFeeAmount
     );
@@ -262,13 +263,14 @@ contract Housteca
         uint totalPayments,
         uint periodicity,
         uint insuredPayments,
-        uint interestAmount
+        uint paymentAmount,
+        uint perPaymentInterestRatio
     )
       external
-      isAdmin(ADMIN_ROOT_LEVEL - 2)
+      isAdmin(ADMIN_ROOT_LEVEL - 1)
     {
         require(targetAmount > 0, "Housteca: Target amount must be greater than zero");
-        require(interestAmount > 0, "Housteca: The interest amount must be greater than zero");
+        require(paymentAmount > 0, "Housteca: The payment amount must be greater than zero");
         require(totalPayments > 0, "Housteca: The total number of payments must be greater than zero");
         require(downpaymentRatio < RATIO, "Housteca: The borrower cannot already own 100% of the property");
         require(address(_tokens[symbol]) != address(0), "Housteca: Invalid token symbol");
@@ -281,13 +283,14 @@ contract Housteca
             targetAmount: targetAmount,
             totalPayments: totalPayments,
             insuredPayments: insuredPayments,
-            interestAmount: interestAmount,
+            paymentAmount: paymentAmount,
+            perPaymentInterestRatio: perPaymentInterestRatio,
             localNodeFeeAmount: _getFee(admin.minimumFeeAmount, admin.feeRatio, targetAmount),
             houstecaFeeAmount: _getFee(_houstecaMinimumFeeAmount, _houstecaFeeRatio, targetAmount),
             created: block.timestamp
         });
 
-        emit InvestmentProposalCreated(borrower, symbol, targetAmount, insuredPayments, totalPayments, periodicity, interestAmount);
+        emit InvestmentProposalCreated(borrower, symbol, targetAmount, insuredPayments, totalPayments, periodicity, paymentAmount);
     }
 
     function removeInvestmentProposal(
@@ -307,6 +310,7 @@ contract Housteca
         require(proposal.targetAmount > 0, "Housteca: There is no investment proposal for this address");
         require(proposal.created.add(PROPOSAL_GRACE_PERIOD) < block.timestamp, "Housteca: the period to create the investment has expired");
 
+        // first create the contract
         address tokenAddress = getToken(proposal.symbol);
         Loan loan = new Loan(
             this,
@@ -316,17 +320,22 @@ contract Housteca
             proposal.targetAmount,
             proposal.totalPayments,
             proposal.insuredPayments,
-            proposal.interestAmount,
+            proposal.paymentAmount,
+            proposal.perPaymentInterestRatio,
             proposal.localNodeFeeAmount,
             proposal.houstecaFeeAmount
         );
         _loans.push(loan);
+
+        // once we have the contract's address, create the tokens
         _propertyToken.issueByPartition(
             keccak256(abi.encodePacked(address(loan))),
             address(loan),
             10 ** _propertyToken.granularity(),
             new bytes(0)
         );
+
+        // lastly, emit the event
         emit InvestmentCreated(
             msg.sender,
             proposal.localNode,
@@ -335,7 +344,7 @@ contract Housteca
             proposal.targetAmount,
             proposal.totalPayments,
             proposal.insuredPayments,
-            proposal.interestAmount,
+            proposal.paymentAmount,
             proposal.localNodeFeeAmount,
             proposal.houstecaFeeAmount
         );
