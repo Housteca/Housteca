@@ -1,4 +1,5 @@
 pragma solidity 0.5.13;
+pragma experimental ABIEncoderV2;
 
 import "openzeppelin-solidity/contracts/math/SafeMath.sol";
 import "openzeppelin-solidity/contracts/token/ERC20/IERC20.sol";
@@ -62,6 +63,8 @@ contract Loan is IERC777Recipient
     Status public _status;
     /// Address of Housteca's main contract
     Housteca public _housteca;
+    /// Array of images
+    string[] public _images;
     /// Address of the local node
     address _localNode;
     /// Map to keep track of investor's funding
@@ -263,6 +266,24 @@ contract Loan is IERC777Recipient
       returns (bytes32)
     {
         return keccak256(abi.encodePacked(address(this)));
+    }
+
+    function images()
+      public
+      view
+      returns (string[] memory)
+    {
+        return _images;
+    }
+
+
+    ///////////// Generic functions /////////////
+    function addImage(
+        string calldata hash
+    )
+      external
+    {
+        _images.push(hash);
     }
 
 
