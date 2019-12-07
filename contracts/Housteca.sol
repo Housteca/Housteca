@@ -151,7 +151,17 @@ contract Housteca
       view
       returns (bool)
     {
-        return _admins[addr].level > 0;
+        return _admins[addr].level >= ADMIN_ROOT_LEVEL - 1;
+    }
+
+    function isLocalNode(
+        address addr
+    )
+      public
+      view
+      returns (bool)
+    {
+        return _admins[addr].level == ADMIN_ROOT_LEVEL - 2;
     }
 
 
