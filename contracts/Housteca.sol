@@ -107,7 +107,7 @@ contract Housteca
     uint public _houstecaMinimumFeeAmount;
     uint public _houstecaFeeRatio;
     Property public _propertyToken;
-    Loan[] public _loans;
+    address[] public _loans;
 
 
     ///////////// Modifiers /////////////
@@ -162,6 +162,14 @@ contract Housteca
       returns (bool)
     {
         return _admins[addr].level == ADMIN_ROOT_LEVEL - 2;
+    }
+
+    function loans()
+      public
+      view
+      returns (address[] memory)
+    {
+        return _loans;
     }
 
 
@@ -345,7 +353,7 @@ contract Housteca
             proposal.localNodeFeeAmount,
             proposal.houstecaFeeAmount
         );
-        _loans.push(loan);
+        _loans.push(address(loan));
 
         // once we have the contract's address, create the tokens
         _propertyToken.issueByPartition(
