@@ -412,7 +412,9 @@ contract Loan is IERC777Recipient
       external
       checkStatus(Status.AWAITING_SIGNATURES)
     {
+        require(isLocalNode(msg.sender), "Housteca Loan: Only the local node can perform this operation");
         require(_borrowerSignature.length == 0 || _localNodeSignature.length == 0, "Housteca Loan: The document is already signed");
+
         _documentHash = documentHash;
         _localNodeSignature.length = 0;
         _borrowerSignature.length = 0;
