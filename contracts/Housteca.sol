@@ -65,21 +65,21 @@ contract Housteca
         address indexed investor
     );
     event TokenAdded(
-        string indexed symbol,
+        string symbol,
         address indexed contractAddress
     );
     event TokenRemoved(
-        string indexed symbol,
+        string symbol,
         address indexed contractAddress
     );
     event InvestmentProposalCreated(
         address indexed borrower,
-        string indexed symbol,
-        uint target,
+        string symbol,
+        uint targetAmount,
         uint insuredPayments,
         uint totalPayments,
-        uint periodicity,
-        uint paymentAmount
+        uint paymentAmount,
+        uint perPaymentInterestRatio
     );
     event InvestmentProposalRemoved(
         address indexed borrower
@@ -289,13 +289,12 @@ contract Housteca
         uint downpaymentRatio,
         uint targetAmount,
         uint totalPayments,
-        uint periodicity,
         uint insuredPayments,
         uint paymentAmount,
         uint perPaymentInterestRatio
     )
       external
-      hasPermissions(ADMIN_ROOT_LEVEL - 1)
+      hasPermissions(ADMIN_ROOT_LEVEL - 2)
     {
         require(targetAmount > 0, "Housteca: Target amount must be greater than zero");
         require(paymentAmount > 0, "Housteca: The payment amount must be greater than zero");
@@ -318,7 +317,7 @@ contract Housteca
             created: block.timestamp
         });
 
-        emit InvestmentProposalCreated(borrower, symbol, targetAmount, insuredPayments, totalPayments, periodicity, paymentAmount);
+        emit InvestmentProposalCreated(borrower, symbol, targetAmount, insuredPayments, totalPayments, paymentAmount, perPaymentInterestRatio);
     }
 
     function removeInvestmentProposal(

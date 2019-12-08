@@ -4,14 +4,44 @@ const Loan = artifacts.require('Loan');
 const TestERC20Token = artifacts.require('TestERC20Token');
 const TestERC777Token = artifacts.require('TestERC777Token');
 const truffleAssert = require('truffle-assertions');
-const { singletons } = require('@openzeppelin/test-helpers');
+const { singletons, constants } = require('@openzeppelin/test-helpers');
+const { ZERO_ADDRESS } = constants;
 
 
-const BN = web3.utils.toBN;
+const toBN = web3.utils.toBN;
+const toAmount = (amount, decimals) => toBN(amount).mul(toBN(10).pow(toBN(decimals)));
+
+const ADMIN_LEVEL = 254;
+const LOCAL_NODE_LEVEL = 253;
+
 
 contract("Housteca", accounts => {
     const manager = accounts[0];
+    const admin = accounts[1];
+    const localNode = accounts[2];
+    const borrower = accounts[9];
+    const downpaymentRatio = toAmount(2, 17);  // 20% of the house belongs to Juan
+    const targetAmount = toAmount(96000, 18);  // Juan needs $96000
+    const totalPayments = toBN(120);
+    const insuredPayments = toBN(6);
+    const paymentAmount = toAmount(1058, 18);
+    const perPaymentInterestRatio = toAmount(1619, 11);  // 0.01619% daily interest
     let erc1820, erc777, erc20, propertyToken, housteca, loan;
+
+    const createInvestmentProposal = async () => {
+        const symbol = await erc777.symbol();
+        return housteca.createInvestmentProposal(
+            borrower,
+            symbol,
+            downpaymentRatio,
+            targetAmount,
+            totalPayments,
+            insuredPayments,
+            paymentAmount,
+            perPaymentInterestRatio,
+            {from: localNode}
+        );
+    };
 
     beforeEach(async () => {
         erc1820 = await singletons.ERC1820Registry(manager);
@@ -50,8 +80,7 @@ contract("Housteca", accounts => {
 
     contract('Manage admins and local nodes', () => {
         it('should successfully add, check and delete an admin', async () => {
-            const admin = accounts[5];
-            const level = BN(254);
+            const level = toBN(ADMIN_LEVEL);
             let isAdmin = await housteca.isAdmin(admin);
             assert.isNotOk(isAdmin);
             let tx = await housteca.addAdmin(admin, level, 0, 0);
@@ -66,10 +95,10 @@ contract("Housteca", accounts => {
 
         it('should successfully add, check and delete a local node', async () => {
             const localNode = accounts[5];
-            const level = BN(253);
+            const level = toBN(LOCAL_NODE_LEVEL);
             let isLocalNode = await housteca.isLocalNode(localNode);
             assert.isNotOk(isLocalNode);
-            let tx = await housteca.addAdmin(localNode, level, BN(500), BN(1e16));
+            let tx = await housteca.addAdmin(localNode, level, toBN(500), toBN(1e16));
             truffleAssert.eventEmitted(tx, 'AdminAdded', {admin: localNode, level});
             isLocalNode = await housteca.isLocalNode(localNode);
             assert.isOk(isLocalNode);
@@ -77,6 +106,79 @@ contract("Housteca", accounts => {
             truffleAssert.eventEmitted(tx, 'AdminRemoved', {admin: localNode, level});
             isLocalNode = await housteca.isLocalNode(localNode);
             assert.isNotOk(isLocalNode);
+        });
+    });
+
+    contract('Manage Housteca fees', () => {
+        it('should be able to set the minimum absolute fee', async () => {
+            let fee = await housteca._houstecaMinimumFeeAmount();
+            assert.deepEqual(fee, toBN(0));
+            const newFee = toAmount(400, 18);
+            await housteca.setHoustecaMinimumFeeAmount(newFee);
+            fee = await housteca._houstecaMinimumFeeAmount();
+            assert.deepEqual(fee, newFee);
+        });
+
+        it('should be able to set the fee %', async () => {
+            let feeRatio = await housteca._houstecaFeeRatio();
+            assert.deepEqual(feeRatio, toBN(0));
+            const newFee = toAmount(1, 16);
+            await housteca.setHoustecaFeeRatio(newFee);
+            feeRatio = await housteca._houstecaFeeRatio();
+            assert.deepEqual(feeRatio, newFee);
+        });
+    });
+
+    contract('Manage tokens', () => {
+        it('should be able to add and remove ERC20 tokens', async () => {
+            const symbol = await erc20.symbol();
+            const contractAddress = erc20.address;
+            let tx = await housteca.addToken(symbol, contractAddress);
+            truffleAssert.eventEmitted(tx, 'TokenAdded', {symbol, contractAddress});
+            let erc20Address = await housteca._tokens(symbol);
+            assert.equal(erc20Address, contractAddress);
+            tx = await housteca.removeToken(symbol);
+            truffleAssert.eventEmitted(tx, 'TokenRemoved', {symbol, contractAddress});
+            erc20Address = await housteca._tokens(symbol);
+            assert.equal(erc20Address, ZERO_ADDRESS);
+        });
+    });
+
+    contract('Proposal management', () => {
+        beforeEach(async () => {
+            await housteca.addAdmin(localNode, LOCAL_NODE_LEVEL, toAmount(500, 18), toAmount(2, 16));
+            const symbol = await erc777.symbol();
+            await housteca.addToken(symbol, erc777.address);
+            await housteca.setHoustecaFeeRatio(toAmount(1, 16));
+            await housteca.setHoustecaMinimumFeeAmount(toAmount(400, 18));
+        });
+
+        it('should be able to create and remove investment proposals', async () => {
+            let tx = await createInvestmentProposal();
+            const symbol = await erc777.symbol();
+            truffleAssert.eventEmitted(tx, 'InvestmentProposalCreated',
+                {
+                    borrower,
+                    symbol,
+                    targetAmount,
+                    insuredPayments,
+                    paymentAmount,
+                    perPaymentInterestRatio
+                });
+            let proposal = await housteca._proposals(borrower);
+            assert.equal(proposal.localNode, localNode);
+            assert.deepEqual(proposal.targetAmount, targetAmount);
+            assert.equal(proposal.symbol, symbol);
+            assert.deepEqual(proposal.downpaymentRatio, downpaymentRatio);
+            assert.deepEqual(proposal.insuredPayments, insuredPayments);
+            assert.deepEqual(proposal.paymentAmount, paymentAmount);
+            assert.deepEqual(proposal.perPaymentInterestRatio, perPaymentInterestRatio);
+            assert.deepEqual(proposal.houstecaFeeAmount, toAmount(960, 18));
+            assert.deepEqual(proposal.localNodeFeeAmount, toAmount(1920, 18));
+            tx = await housteca.removeInvestmentProposal(borrower);
+            truffleAssert.eventEmitted(tx, 'InvestmentProposalRemoved', {borrower});
+            proposal = await housteca._proposals(borrower);
+            assert.equal(proposal.localNode, ZERO_ADDRESS);
         });
     });
 });
