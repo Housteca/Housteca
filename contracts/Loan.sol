@@ -425,6 +425,7 @@ contract Loan is IERC777Recipient
     function abortLoan()
       external
     {
+        require(_status == Status.AWAITING_SIGNATURES || _status == Status.FUNDING, "Housteca Loan: Invalid status");
         require(isLocalNode(msg.sender), "Housteca Loan: Only the local node can perform this operation");
 
         _changeStatus(Status.UNCOMPLETED);
