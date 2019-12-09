@@ -26,3 +26,4 @@ yarn-error.log*
 .idea/
 installed_contracts/
 bridge.log
+.env
