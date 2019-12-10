@@ -85,6 +85,7 @@ contract Housteca
         address indexed borrower
     );
     event InvestmentCreated(
+        address contractAddress,
         address borrower,
         address localNode,
         string symbol,
@@ -364,6 +365,7 @@ contract Housteca
 
         // lastly, emit the event
         emit InvestmentCreated(
+            address(loan),
             msg.sender,
             proposal.localNode,
             proposal.symbol,
