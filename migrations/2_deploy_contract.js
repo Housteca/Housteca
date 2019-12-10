@@ -14,8 +14,8 @@ module.exports = async (deployer, network, accounts) => {
         await deployer.deploy(TestERC20Token);
     }
 
-    await deployer.deploy(Property);
-    await deployer.deploy(Housteca, Property.address);
+    await deployer.deploy(Property, {gas: 75e5});
+    await deployer.deploy(Housteca, Property.address, {gas: 75e5});
     const instance = await Property.deployed();
     await instance.transferOwnership(Housteca.address);
 };

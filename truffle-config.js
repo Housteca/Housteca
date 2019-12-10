@@ -18,11 +18,12 @@
  *
  */
 
-// const HDWallet = require('truffle-hdwallet-provider');
-// const infuraKey = "fj4jll3k.....";
-//
-// const fs = require('fs');
-// const mnemonic = fs.readFileSync(".secret").toString().trim();
+require('dotenv').config();
+const Web3 = require('web3');
+const web3 = new Web3();
+const fs = require('fs');
+const HDWalletProvider = require("truffle-hdwallet-provider");
+
 
 module.exports = {
 
@@ -52,17 +53,14 @@ module.exports = {
         },
 
         rinkeby: {
-            host: "localhost",
-            port: 8545,
-            network_id: 4,
-            gas: 4612388
+            provider: () => new HDWalletProvider(process.env.MNEMONIC, `https://rinkeby.infura.io/v3/${process.env.INFURA_PROJECT_ID}`),
+            network_id: 4
         },
 
         ropsten: {
-            host: "localhost",
-            port: 8545,
+            provider: () => new HDWalletProvider(process.env.MNEMONIC, `https://ropsten.infura.io/v3/${process.env.INFURA_PROJECT_ID}`),
             network_id: 3,
-            gas: 4612388
+            skipDryRun: true
         }
     },
 
