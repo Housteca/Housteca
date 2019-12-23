@@ -1,4 +1,4 @@
-pragma solidity 0.5.13;
+pragma solidity 0.6.0;
 
 
 import "ERC1400/contracts/ERC1400.sol";
