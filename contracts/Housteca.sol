@@ -162,7 +162,7 @@ contract Housteca
       view
       returns (bool)
     {
-        return _admins[addr].level == ADMIN_ROOT_LEVEL - 2;
+        return _admins[addr].level >= ADMIN_ROOT_LEVEL - 2;
     }
 
     function loans()
