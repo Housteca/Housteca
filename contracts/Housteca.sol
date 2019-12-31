@@ -28,7 +28,6 @@ contract Housteca
     struct Administrator
     {
         uint8 level;
-        uint minimumFeeAmount;
         uint feeRatio;
     }
 
@@ -105,7 +104,6 @@ contract Housteca
     mapping (address => bool) public _investors;
     mapping (string => address) public _tokens;
     mapping (address => InvestmentProposal) public _proposals;
-    uint public _houstecaMinimumFeeAmount;
     uint public _houstecaFeeRatio;
     Property public _propertyToken;
     address[] public _loans;
@@ -181,13 +179,13 @@ contract Housteca
     {
         _admins[msg.sender].level = ADMIN_ROOT_LEVEL;
         _propertyToken = Property(propertyToken);
+        _houstecaFeeRatio = RATIO;  // 1% fee by default for Housteca
         emit AdminAdded(msg.sender, ADMIN_ROOT_LEVEL);
     }
 
     function addAdmin(
         address addr,
         uint8 level,
-        uint minimumFeeAmount,
         uint feeRatio
     )
       external
@@ -198,7 +196,6 @@ contract Housteca
         emit AdminAdded(addr, level);
         _admins[addr] = Administrator({
             level: level,
-            minimumFeeAmount: minimumFeeAmount,
             feeRatio: feeRatio
         });
     }
@@ -211,15 +208,6 @@ contract Housteca
     {
         emit AdminRemoved(addr, _admins[addr].level);
         delete _admins[addr];
-    }
-
-    function setHoustecaMinimumFeeAmount(
-        uint houstecaMinimumFeeAmount
-    )
-      external
-      hasPermissions(ADMIN_ROOT_LEVEL - 1)
-    {
-        _houstecaMinimumFeeAmount = houstecaMinimumFeeAmount;
     }
 
     function setHoustecaFeeRatio(
@@ -273,7 +261,6 @@ contract Housteca
     }
 
     function _getFee(
-        uint minimumFeeAmount,
         uint feeRatio,
         uint amount
     )
@@ -281,7 +268,7 @@ contract Housteca
       pure
       returns (uint)
     {
-        return Math.max(minimumFeeAmount, amount.mul(feeRatio).div(RATIO));
+        return amount.mul(feeRatio).div(RATIO);
     }
 
     function createInvestmentProposal(
@@ -313,8 +300,8 @@ contract Housteca
             insuredPayments: insuredPayments,
             paymentAmount: paymentAmount,
             perPaymentInterestRatio: perPaymentInterestRatio,
-            localNodeFeeAmount: _getFee(admin.minimumFeeAmount, admin.feeRatio, targetAmount),
-            houstecaFeeAmount: _getFee(_houstecaMinimumFeeAmount, _houstecaFeeRatio, targetAmount),
+            localNodeFeeAmount: _getFee(admin.feeRatio, targetAmount),
+            houstecaFeeAmount: _getFee(_houstecaFeeRatio, targetAmount),
             created: block.timestamp
         });
 

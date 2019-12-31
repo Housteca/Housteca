@@ -83,7 +83,7 @@ contract("Housteca", accounts => {
             const level = toBN(ADMIN_LEVEL);
             let isAdmin = await housteca.isAdmin(admin);
             assert.isNotOk(isAdmin);
-            let tx = await housteca.addAdmin(admin, level, 0, 0);
+            let tx = await housteca.addAdmin(admin, level, 0);
             truffleAssert.eventEmitted(tx, 'AdminAdded', {admin, level});
             isAdmin = await housteca.isAdmin(admin);
             assert.isOk(isAdmin);
@@ -98,7 +98,7 @@ contract("Housteca", accounts => {
             const level = toBN(LOCAL_NODE_LEVEL);
             let isLocalNode = await housteca.isLocalNode(localNode);
             assert.isNotOk(isLocalNode);
-            let tx = await housteca.addAdmin(localNode, level, toBN(500), toBN(1e16));
+            let tx = await housteca.addAdmin(localNode, level, toBN(1e16));
             truffleAssert.eventEmitted(tx, 'AdminAdded', {admin: localNode, level});
             isLocalNode = await housteca.isLocalNode(localNode);
             assert.isOk(isLocalNode);
@@ -110,18 +110,9 @@ contract("Housteca", accounts => {
     });
 
     contract('Manage Housteca fees', () => {
-        it('should be able to set the minimum absolute fee', async () => {
-            let fee = await housteca._houstecaMinimumFeeAmount();
-            assert.deepEqual(fee, toBN(0));
-            const newFee = toAmount(400, 18);
-            await housteca.setHoustecaMinimumFeeAmount(newFee);
-            fee = await housteca._houstecaMinimumFeeAmount();
-            assert.deepEqual(fee, newFee);
-        });
-
         it('should be able to set the fee %', async () => {
             let feeRatio = await housteca._houstecaFeeRatio();
-            assert.deepEqual(feeRatio, toBN(0));
+            assert.deepEqual(feeRatio, toBN(10).pow(toBN(18)));
             const newFee = toAmount(1, 16);
             await housteca.setHoustecaFeeRatio(newFee);
             feeRatio = await housteca._houstecaFeeRatio();
@@ -146,11 +137,10 @@ contract("Housteca", accounts => {
 
     contract('Proposal management', () => {
         beforeEach(async () => {
-            await housteca.addAdmin(localNode, LOCAL_NODE_LEVEL, toAmount(500, 18), toAmount(2, 16));
+            await housteca.addAdmin(localNode, LOCAL_NODE_LEVEL, toAmount(2, 16));
             const symbol = await erc777.symbol();
             await housteca.addToken(symbol, erc777.address);
             await housteca.setHoustecaFeeRatio(toAmount(1, 16));
-            await housteca.setHoustecaMinimumFeeAmount(toAmount(400, 18));
         });
 
         it('should be able to create and remove investment proposals', async () => {
