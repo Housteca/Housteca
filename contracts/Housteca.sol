@@ -191,6 +191,7 @@ contract Housteca
       external
       hasPermissions(ADMIN_ROOT_LEVEL - 1)
     {
+        require(addr != msg.sender, "Housteca: cannot change yourself");
         require(level > 0, "Housteca: Must provide a level greater than zero");
 
         emit AdminAdded(addr, level);
@@ -312,7 +313,7 @@ contract Housteca
         address borrower
     )
       external
-      hasPermissions(ADMIN_ROOT_LEVEL - 2)
+      hasPermissions(ADMIN_ROOT_LEVEL - 1)
     {
         emit InvestmentProposalRemoved(borrower);
         delete _proposals[borrower];
