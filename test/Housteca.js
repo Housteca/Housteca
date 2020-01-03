@@ -49,6 +49,8 @@ contract("Housteca", accounts => {
         erc20 = await TestERC20Token.new();
         propertyToken = await Property.new();
         housteca = await Housteca.new(propertyToken.address);
+        propertyToken.addMinter(housteca.address);
+        propertyToken.transferOwnership(housteca.address);
     });
 
     contract('After contract creation', () => {
@@ -112,8 +114,8 @@ contract("Housteca", accounts => {
     contract('Manage Housteca fees', () => {
         it('should be able to set the fee %', async () => {
             let feeRatio = await housteca._houstecaFeeRatio();
-            assert.deepEqual(feeRatio, toBN(10).pow(toBN(18)));
-            const newFee = toAmount(1, 16);
+            assert.deepEqual(feeRatio, toBN(10).pow(toBN(16)));
+            const newFee = toAmount(2, 16);
             await housteca.setHoustecaFeeRatio(newFee);
             feeRatio = await housteca._houstecaFeeRatio();
             assert.deepEqual(feeRatio, newFee);
@@ -169,6 +171,27 @@ contract("Housteca", accounts => {
             truffleAssert.eventEmitted(tx, 'InvestmentProposalRemoved', {borrower});
             proposal = await housteca._proposals(borrower);
             assert.equal(proposal.localNode, ZERO_ADDRESS);
+        });
+
+        it('should be able to create Investments from proposals', async () => {
+            await createInvestmentProposal();
+            let investments = await housteca.loans();
+            const symbol = await erc777.symbol();
+            const totalInvestments = investments.length;
+            let tx = await housteca.createInvestment({from: borrower});
+            investments = await housteca.loans();
+            assert.equal(totalInvestments + 1, investments.length);
+            const contractAddress = investments[investments.length - 1];
+            truffleAssert.eventEmitted(tx, 'InvestmentCreated',
+                {
+                    contractAddress,
+                    borrower,
+                    localNode,
+                    symbol,
+                    targetAmount,
+                    insuredPayments,
+                    paymentAmount,
+                });
         });
     });
 });

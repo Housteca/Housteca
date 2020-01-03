@@ -17,5 +17,6 @@ module.exports = async (deployer, network, accounts) => {
     await deployer.deploy(Property, {gas: 75e5});
     await deployer.deploy(Housteca, Property.address, {gas: 75e5});
     const instance = await Property.deployed();
-    await instance.transferOwnership(Housteca.address);
+    await instance.addMinter(Housteca.address, {from: accounts[0]});
+    await instance.transferOwnership(Housteca.address, {from: accounts[0]});
 };

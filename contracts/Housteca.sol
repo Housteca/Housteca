@@ -179,7 +179,7 @@ contract Housteca
     {
         _admins[msg.sender].level = ADMIN_ROOT_LEVEL;
         _propertyToken = Property(propertyToken);
-        _houstecaFeeRatio = RATIO;  // 1% fee by default for Housteca
+        _houstecaFeeRatio = RATIO / 100;  // 1% fee by default for Housteca
         emit AdminAdded(msg.sender, ADMIN_ROOT_LEVEL);
     }
 
@@ -324,7 +324,7 @@ contract Housteca
     {
         InvestmentProposal storage proposal = _proposals[msg.sender];
         require(proposal.targetAmount > 0, "Housteca: There is no investment proposal for this address");
-        require(proposal.created.add(PROPOSAL_GRACE_PERIOD) < block.timestamp, "Housteca: the period to create the investment has expired");
+        require(block.timestamp < proposal.created.add(PROPOSAL_GRACE_PERIOD), "Housteca: the period to create the investment has expired");
 
         // first create the contract
         address tokenAddress = getToken(proposal.symbol);
@@ -347,8 +347,8 @@ contract Housteca
         _propertyToken.issueByPartition(
             keccak256(abi.encodePacked(address(loan))),
             address(loan),
-            10 ** _propertyToken.granularity(),
-            new bytes(0)
+            RATIO,
+            hex"10"
         );
 
         // lastly, emit the event
@@ -365,6 +365,9 @@ contract Housteca
             proposal.localNodeFeeAmount,
             proposal.houstecaFeeAmount
         );
+
+        // remove the proposal since it has just become an actual Investment
+        delete _proposals[msg.sender];
     }
 }
 

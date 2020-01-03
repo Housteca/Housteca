@@ -10,7 +10,7 @@ import "./Housteca.sol";
 import "./Property.sol";
 
 
-contract Loan is IERC777Recipient
+contract Loan is IERC777Recipient, IERC1400TokensRecipient
 {
     ///////////// Constants /////////////
 
@@ -54,6 +54,7 @@ contract Loan is IERC777Recipient
     /// Registry for ERC777 tokens
     IERC1820Registry constant public ERC1820 = IERC1820Registry(0x1820a4B7618BdE71Dce8cdc73aAB6C95905faD24);
     bytes32 constant public ERC777_TOKENS_RECIPIENT_INTERFACE_HASH = keccak256("ERC777TokensRecipient");
+    bytes32 constant public ERC1400_TOKENS_RECIPIENT_INTERFACE_HASH = keccak256("ERC1400TokensRecipient");
 
     /// User that buys a house
     address public _borrower;
@@ -319,8 +320,9 @@ contract Loan is IERC777Recipient
         _stakeDepositDeadline = block.timestamp.add(INITIAL_STAKE_PERIOD);
         _status = Status.AWAITING_STAKE;
 
-        // We are dealing with an ERC777 tokens, so we must register the interface
+        // We are dealing with a ERC777 and ERC1400 tokens, so we must register the interfaces
         ERC1820.setInterfaceImplementer(address(this), ERC777_TOKENS_RECIPIENT_INTERFACE_HASH, address(this));
+        ERC1820.setInterfaceImplementer(address(this), ERC1400_TOKENS_RECIPIENT_INTERFACE_HASH, address(this));
     }
 
     /// Internal function used to handle the received initial stake.
@@ -656,6 +658,7 @@ contract Loan is IERC777Recipient
     {
         require(msg.sender == address(_token), "Housteca Loan: This contract does not accept such token");
         require(to == address(this), "Housteca Loan: Invalid ERC777 token receiver");
+
         if (_status == Status.AWAITING_STAKE) {
             _sendInitialStake(from, amount);
         } else if (_status == Status.FUNDING) {
@@ -665,5 +668,36 @@ contract Loan is IERC777Recipient
         } else {
             revert("Housteca Loan: Cannot accept ERC777 funds in the current state");
         }
+    }
+
+    /// Checks whether it can receive ERC1400 tokens
+    function canReceive(
+        bytes32 partitionParam,
+        address /* from */,
+        address /* to */,
+        uint /* value */,
+        bytes calldata /* data */,
+        bytes calldata /* operatorData */
+    )
+      external
+      view
+      returns(bool)
+    {
+        return partitionParam == partition();
+    }
+
+    /// Hook for receiving ERC1400 tokens
+    function tokensReceived(
+        bytes32 /* partition */,
+        address /* operator */,
+        address /* from */,
+        address /* to */,
+        uint /* value */,
+        bytes calldata /* data */,
+        bytes calldata /* operatorData */
+    )
+      external
+    {
+        // nothing to do here
     }
 }
