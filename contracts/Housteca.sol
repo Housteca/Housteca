@@ -322,14 +322,15 @@ contract Housteca
     function createInvestment()
       external
     {
-        InvestmentProposal storage proposal = _proposals[msg.sender];
+        address borrower = msg.sender;
+        InvestmentProposal storage proposal = _proposals[borrower];
         require(proposal.targetAmount > 0, "Housteca: There is no investment proposal for this address");
         require(block.timestamp < proposal.created.add(PROPOSAL_GRACE_PERIOD), "Housteca: the period to create the investment has expired");
 
         // first create the contract
         address tokenAddress = getToken(proposal.symbol);
         Loan loan = new Loan(
-            this,
+            borrower,
             proposal.localNode,
             tokenAddress,
             proposal.downpaymentRatio,
@@ -354,7 +355,7 @@ contract Housteca
         // lastly, emit the event
         emit InvestmentCreated(
             address(loan),
-            msg.sender,
+            borrower,
             proposal.localNode,
             proposal.symbol,
             proposal.downpaymentRatio,

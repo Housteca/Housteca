@@ -313,7 +313,7 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
     ///////////// Status AWAITING_STAKE /////////////
 
     constructor(
-        Housteca housteca,
+        address borrower,
         address localNode,
         address tokenAddress,
         uint downpaymentRatio,
@@ -327,7 +327,8 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
     )
       public
     {
-        _housteca = housteca;
+        _borrower = borrower;
+        _housteca = Housteca(msg.sender);
         _localNode = localNode;
         _token = IERC20(tokenAddress);
         _downpaymentRatio = downpaymentRatio;
@@ -338,7 +339,6 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
         _perPaymentInterestRatio = perPaymentInterestRatio;
         _localNodeFeeAmount = localNodeFeeAmount;
         _houstecaFeeAmount = houstecaFeeAmount;
-        _borrower = msg.sender;
         _stakeDepositDeadline = block.timestamp.add(INITIAL_STAKE_PERIOD);
         _status = Status.AWAITING_STAKE;
 
