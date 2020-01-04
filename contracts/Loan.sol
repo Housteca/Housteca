@@ -67,7 +67,7 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
     /// Array of images
     string[] public _images;
     /// Address of the local node
-    address _localNode;
+    address public _localNode;
     /// Map to keep track of investor's funding
     mapping(address => uint) public _investments;
     /// Map to keep track of the times each investor collected his earnings
