@@ -284,9 +284,31 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
     )
       external
     {
+        require(isLocalNode(msg.sender) || isBorrower(msg.sender), "Housteca Loan: permission denied");
+
         _images.push(hash);
     }
 
+    function details()
+      external
+      view
+      returns (address, address, address, uint, uint, uint, uint, uint, uint, uint, uint, Status)
+    {
+        return (
+            _borrower,
+            _localNode,
+            address(_token),
+            _downpaymentRatio,
+            _targetAmount,
+            _totalPayments,
+            _insuredPayments,
+            _paymentAmount,
+            _perPaymentInterestRatio,
+            _localNodeFeeAmount,
+            _houstecaFeeAmount,
+            _status
+        );
+    }
 
     ///////////// Status AWAITING_STAKE /////////////
 
