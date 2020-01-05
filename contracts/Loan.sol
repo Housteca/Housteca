@@ -120,6 +120,8 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
     bytes32 public _documentHash;
     /// Amount of tokens that belong to the borrower
     uint public _transferredTokens;
+    /// Checks whether Property tokens are received
+    bool public _propertyTokensReceived;
 
 
     ///////////// Modifiers /////////////
@@ -198,7 +200,7 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
 
     /// Gets the ratio of investment for the called.
     function investmentRatio(
-      address addr
+        address addr
     )
       public
       view
@@ -257,7 +259,7 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
         );
     }
 
-    // Gets the Property contract
+    /// Gets the Property contract
     function propertyToken()
       public
       view
@@ -284,7 +286,9 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
     }
 
 
-    ///////////// Generic functions /////////////
+    /********** Generic functions *********/
+
+    /// Adds the IPFS hash of a new image of the property
     function addImage(
         string calldata hash
     )
@@ -295,6 +299,7 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
         _images.push(hash);
     }
 
+    /// Gets details of this investment
     function details()
       external
       view
@@ -316,6 +321,7 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
         );
     }
 
+    /// Gets the amounts of Property tokens that belong to a given address
     function propertyTokenAmount(
         address addr
     )
@@ -329,7 +335,7 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
         return availableTokens.mul(investmentRatio(addr));
     }
 
-    ///////////// Status AWAITING_STAKE /////////////
+    /*********** Status AWAITING_STAKE ************/
 
     constructor(
         address borrower,
@@ -375,6 +381,7 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
       internal
       checkStatus(Status.AWAITING_STAKE)
     {
+        require(_propertyTokensReceived, "Housteca Loan: Property tokens not received");
         require(isBorrower(from), "Housteca Loan: Only the borrower can deposit the initial stake");
         require(amount == initialStakeAmount(), "Housteca Loan: invalid initial stake amount");
 
@@ -389,6 +396,7 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
       external
     {
         require(isBorrower(msg.sender), "Housteca Loan: Only the borrower can perform this operation");
+
         uint amount = initialStakeAmount();
         require(_token.transferFrom(_borrower, address(this), amount), "Housteca Loan: Token transfer failed");
 
@@ -569,7 +577,7 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
             _amortizedAmount = _amortizedAmount.add(amortization);
             tokensToTransfer = amortization.mul(TOTAL_PROPERTY_TOKENS).div(_targetAmount);
         }
-         _transferredTokens = _transferredTokens.add(tokensToTransfer);
+        _transferredTokens = _transferredTokens.add(tokensToTransfer);
     }
 
     /// Pure ERC20 function used by the borrower to pay
@@ -723,6 +731,6 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
     )
       external
     {
-        // nothing to do here
+        _propertyTokensReceived = true;
     }
 }
