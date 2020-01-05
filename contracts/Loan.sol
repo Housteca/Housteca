@@ -22,6 +22,8 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
     uint constant public PERIODICITY = 30 days;
     /// The number to multiply ratios for (solidity doesn't store floating point numbers)
     uint constant public RATIO = 10 ** 18;
+    /// Total amount of property tokens
+    uint constant public TOTAL_PROPERTY_TOKENS = 10 ** 18;
 
 
     ///////////// Libraries /////////////
@@ -116,6 +118,8 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
     bytes public _borrowerSignature;
     /// Hash of the document that proves the actual acquisition of the property
     bytes32 public _documentHash;
+    /// Amount of tokens that belong to the borrower
+    uint public _transferredTokens;
 
 
     ///////////// Modifiers /////////////
@@ -193,12 +197,14 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
     }
 
     /// Gets the ratio of investment for the called.
-    function investmentRatio()
+    function investmentRatio(
+      address addr
+    )
       public
       view
       returns (uint)
     {
-        return _investments[msg.sender].mul(RATIO).div(_targetAmount);
+        return _investments[addr].mul(RATIO).div(_targetAmount);
     }
 
     /// Checks whether the period for the borrower to pay has expired or not.
@@ -310,6 +316,19 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
         );
     }
 
+    function propertyTokenAmount(
+        address addr
+    )
+      public
+      returns (uint)
+    {
+        if (addr == _borrower) {
+            return _transferredTokens;
+        }
+        uint availableTokens = TOTAL_PROPERTY_TOKENS.sub(_transferredTokens);
+        return availableTokens.mul(investmentRatio(addr));
+    }
+
     ///////////// Status AWAITING_STAKE /////////////
 
     constructor(
@@ -419,7 +438,7 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
         require(_status == Status.FUNDING || _status == Status.UNCOMPLETED, "Housteca Loan: Invalid status");
         require(hasInvested(msg.sender), "Housteca Loan: No amount invested");
 
-        uint extraAmount = _extraAmount.mul(investmentRatio()).div(RATIO);
+        uint extraAmount = _extraAmount.mul(investmentRatio(msg.sender)).div(RATIO);
         uint amount = _investedAmount.add(extraAmount);
         _investments[msg.sender] = 0;
         _investedAmount = _investedAmount.sub(amount);
@@ -514,8 +533,7 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
         // This is important: funds are transferred to the local node, not the borrower
         _transfer(_localNode, amountToTransfer);
         // transfer the tokens to the borrower
-        uint propertyAmount = _downpaymentRatio.mul(10 ** propertyToken().granularity()).div(RATIO);
-        _transferProperty(_borrower, propertyAmount);
+        _transferredTokens = _downpaymentRatio.mul(TOTAL_PROPERTY_TOKENS).div(RATIO);
     }
 
 
@@ -536,10 +554,10 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
         _timesPaid += 1;
         uint tokensToTransfer = 0;
         if (_timesPaid >= _totalPayments) {
-            tokensToTransfer = propertyToken().balanceOfByPartition(partition(), address(this));
             _amortizedAmount = _targetAmount;
             _changeStatus(Status.FINISHED);
             _nextPayment = 0;
+            tokensToTransfer = TOTAL_PROPERTY_TOKENS;
         } else {
             // Switch to ACTIVE if it was in DEFAULT
             _changeStatus(Status.ACTIVE);
@@ -549,9 +567,9 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
             uint interestAmount = remainingNonAmortizedAmount.mul(_totalPayments).mul(_perPaymentInterestRatio).div(RATIO);
             uint amortization = _paymentAmount.sub(interestAmount);
             _amortizedAmount = _amortizedAmount.add(amortization);
-            tokensToTransfer = amortization.mul(RATIO).div(_targetAmount).mul(10 ** propertyToken().granularity()).div(RATIO);
+            tokensToTransfer = amortization.mul(TOTAL_PROPERTY_TOKENS).div(_targetAmount);
         }
-        _transferProperty(_borrower, tokensToTransfer);
+         _transferredTokens = _transferredTokens.add(tokensToTransfer);
     }
 
     /// Pure ERC20 function used by the borrower to pay
@@ -579,7 +597,7 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
             _status == Status.DEFAULT,
             "Housteca Loan: Invalid status for this operation"
         );
-        uint amountToCollect = _paymentAmount.mul(investmentRatio()).div(RATIO);
+        uint amountToCollect = _paymentAmount.mul(investmentRatio(msg.sender)).div(RATIO);
         if (_timesCollected[msg.sender] < _timesPaid) {
             _timesCollected[msg.sender] += 1;
         } else if (_timesCollectedDefault[msg.sender] < _timesDefault) {
@@ -590,21 +608,6 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
         _transfer(msg.sender, amountToCollect);
     }
 
-
-    ///////////// Status BANKRUPT /////////////
-
-    function collectProperty()
-      external
-    {
-        require(hasInvested(msg.sender), "Housteca Loan: Only investors can perform this operation");
-        require(!_propertyCollected[msg.sender], "Housteca Loan: You have already collected the property tokens");
-
-        uint totalTokens = 10 ** propertyToken().granularity();
-        uint availableTokens = totalTokens.sub(_downpaymentRatio.mul(totalTokens).div(RATIO));
-        uint propertyAmount = availableTokens.mul(investmentRatio());
-        _propertyCollected[msg.sender] = true;
-        _transferProperty(msg.sender, propertyAmount);
-    }
 
     ///////////// Status change /////////////
 
