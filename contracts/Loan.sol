@@ -373,7 +373,7 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
     }
 
     /// Internal function used to handle the received initial stake.
-    /// It transitions to the ACTIVE status.
+    /// It transitions to the FUNDING status.
     function _sendInitialStake(
         address from,
         uint amount
@@ -386,7 +386,7 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
         require(amount == initialStakeAmount(), "Housteca Loan: invalid initial stake amount");
 
         _fundingDeadline = block.timestamp.add(FUNDING_PERIOD);
-        _changeStatus(Status.ACTIVE);
+        _changeStatus(Status.FUNDING);
     }
 
     /// Sends the initial stake.
@@ -420,6 +420,9 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
         require(_investedAmount <= _targetAmount, "Housteca Loan: Amount sent over required one");
 
         _investments[msg.sender] = _investments[msg.sender].add(amount);
+        if (_investedAmount == _targetAmount) {
+            _changeStatus(Status.AWAITING_SIGNATURES);
+        }
     }
 
     /// A Housteca's validated investor invest in this loan.
