@@ -534,7 +534,7 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
       external
       checkStatus(Status.AWAITING_SIGNATURES)
     {
-        require(_borrowerSignature.length > 0 && _localNodeSignature.length > 0, "Housteca Locan: Signatures not ready");
+        require(_borrowerSignature.length > 0 && _localNodeSignature.length > 0, "Housteca Loan: Signatures not ready");
         require(isLocalNode(msg.sender), "Housteca Locan: Only the local node can perform this operation");
 
         uint insuranceAmount = _paymentAmount.mul(_insuredPayments);
