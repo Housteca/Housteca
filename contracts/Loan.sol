@@ -538,11 +538,13 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
         require(isLocalNode(msg.sender), "Housteca Locan: Only the local node can perform this operation");
 
         uint insuranceAmount = _paymentAmount.mul(_insuredPayments);
-        uint amountToTransfer = _targetAmount.sub(insuranceAmount);
+        uint amountToTransfer = _targetAmount.sub(insuranceAmount).add(_localNodeFeeAmount);
         _nextPayment = block.timestamp.add(PERIODICITY);
         _changeStatus(Status.ACTIVE);
         // This is important: funds are transferred to the local node, not the borrower
         _transfer(_localNode, amountToTransfer);
+        // Also transfer funds to Housteca
+        _transfer(address(_housteca), _houstecaFeeAmount);
         // transfer the tokens to the borrower
         _transferredTokens = _downpaymentRatio.mul(TOTAL_PROPERTY_TOKENS).div(RATIO);
     }
@@ -572,7 +574,6 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
         } else {
             // Switch to ACTIVE if it was in DEFAULT
             _changeStatus(Status.ACTIVE);
-
             _nextPayment = _nextPayment.add(PERIODICITY);
             uint remainingNonAmortizedAmount = _targetAmount.sub(_amortizedAmount);
             uint interestAmount = remainingNonAmortizedAmount.mul(_totalPayments).mul(_perPaymentInterestRatio).div(RATIO);

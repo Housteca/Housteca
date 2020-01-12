@@ -192,7 +192,7 @@ contract Housteca
       hasPermissions(ADMIN_ROOT_LEVEL - 1)
     {
         require(addr != msg.sender, "Housteca: cannot change yourself");
-        require(level > 0, "Housteca: Must provide a level greater than zero");
+        require(level > 0 && level < ADMIN_ROOT_LEVEL, "Housteca: Must provide a level greater than zero");
 
         emit AdminAdded(addr, level);
         _admins[addr] = Administrator({
