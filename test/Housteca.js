@@ -15,6 +15,7 @@ const LOCAL_NODE_LEVEL = 253;
 const DOCUMENT_HASH = '0x38d290a6790cc2d5fd9c26aef474521a0f2d01661247bd8ee6d8e836d93d20b4';
 const LOCAL_NODE_SIGNATURE = '0x8679bc6fcf639ebb037a8b0935cd37719069c73490d6a448287200abac82d54606ef5085640130235fcc001bd4d75f36079bb9bb459cac2e86839a3466cbb8ae1b';
 const BORROWER_SIGNATURE = '0xa4838ae7ad81bb84721a34884f6eae3c7ba690892ae60e304b788b58f2c118780fa8ccb629087ec0d5f67bc0bae4f7c5bf6d34c81d55f89e7ac595cd1961a9571b';
+const RATIO = toBN(10).pow(toBN(18));
 
 
 contract("Housteca", accounts => {
@@ -23,6 +24,7 @@ contract("Housteca", accounts => {
     const admin = accounts[2];
     const investor = accounts[7];
     const borrower = accounts[8];
+    const totalTokens = toBN(10).pow(toBN(18));
     const downpaymentRatio = toAmount(2, 17);  // 20% of the house belongs to Juan
     const targetAmount = toAmount(96000, 18);  // Juan needs $96000
     const totalPayments = toBN(120);
@@ -311,6 +313,23 @@ contract("Housteca", accounts => {
                         });
 
                         contract('Status ACTIVE', () => {
+                            const pay = async () => {
+                                const oldNextPayment = await loan._nextPayment();
+                                const oldBalance = await erc20.balanceOf(borrower);
+                                await erc20.approve(loan.address, paymentAmount, {from: borrower});
+                                await loan.pay({from: borrower});
+                                const newBalance = await erc20.balanceOf(borrower);
+                                assert.equal(newBalance.toString(), oldBalance.sub(paymentAmount).toString());
+                                const newNextPayment = await loan._nextPayment();
+                                assert.equal(newNextPayment.toString(), oldNextPayment.add(toBN(30 * 24 * 60 * 60)).toString());
+                                const transferredTokens = await loan._transferredTokens();
+                                const amortizedAmount = await loan._amortizedAmount();
+                                const downpaymentTokens = totalTokens.mul(downpaymentRatio).div(RATIO);
+                                const amortizedTokens = totalTokens.mul(RATIO.sub(downpaymentRatio)).mul(amortizedAmount).div(targetAmount).div(RATIO);
+                                const tokens = downpaymentTokens.add(amortizedTokens);
+                                assert.equal(transferredTokens.toString(), tokens.toString());
+                            };
+
                             beforeEach(async () => {
                                 await uploadAndSignDocument();
                             });
@@ -318,6 +337,10 @@ contract("Housteca", accounts => {
                             it('should have the correct status', async () => {
                                 const status = await loan._status();
                                 assert.deepEqual(status, toBN(3));
+                            });
+
+                            it('should let the borrower pay the rent', async () => {
+                                await pay();
                             });
 
                             contract('Status FINISHED', () => {

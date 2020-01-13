@@ -562,7 +562,7 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
         require(_status == Status.ACTIVE || _status == Status.DEFAULT, "Housteca Loan: Cannot perform this operation in the current status");
         require(addr == _borrower, "Housteca Loan: Only the borrower can pay");
         require(amount == _paymentAmount, "Housteca Loan: Invalid amount to pay");
-        require(_nextPayment < block.timestamp.add(PERIODICITY), "Housteca Loan: it is too soon to pay");
+        require(_nextPayment <= block.timestamp.add(PERIODICITY), "Housteca Loan: It is too soon to pay");
 
         _timesPaid += 1;
         uint tokensToTransfer = 0;
@@ -576,23 +576,22 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
             _changeStatus(Status.ACTIVE);
             _nextPayment = _nextPayment.add(PERIODICITY);
             uint remainingNonAmortizedAmount = _targetAmount.sub(_amortizedAmount);
-            uint interestAmount = remainingNonAmortizedAmount.mul(_totalPayments).mul(_perPaymentInterestRatio).div(RATIO);
+            uint interestAmount = remainingNonAmortizedAmount.mul(_perPaymentInterestRatio).div(RATIO);
             uint amortization = _paymentAmount.sub(interestAmount);
             _amortizedAmount = _amortizedAmount.add(amortization);
-            tokensToTransfer = amortization.mul(TOTAL_PROPERTY_TOKENS).div(_targetAmount);
+            uint availableTokens = TOTAL_PROPERTY_TOKENS.mul(RATIO.sub(_downpaymentRatio)).div(RATIO);
+            tokensToTransfer = amortization.mul(availableTokens).div(_targetAmount);
         }
         _transferredTokens = _transferredTokens.add(tokensToTransfer);
     }
 
     /// Pure ERC20 function used by the borrower to pay
-    function pay(
-        uint amount
-    )
+    function pay()
       external
     {
-        require(_token.transferFrom(msg.sender, address(this), amount), "Housteca Loan: Token transfer failed");
+        require(_token.transferFrom(msg.sender, address(this), _paymentAmount), "Housteca Loan: Token transfer failed");
 
-        _pay(msg.sender, amount);
+        _pay(msg.sender, _paymentAmount);
     }
 
     /// Function used by the investors to collect the earnings
