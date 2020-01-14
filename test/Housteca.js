@@ -17,6 +17,39 @@ const LOCAL_NODE_SIGNATURE = '0x8679bc6fcf639ebb037a8b0935cd37719069c73490d6a448
 const BORROWER_SIGNATURE = '0xa4838ae7ad81bb84721a34884f6eae3c7ba690892ae60e304b788b58f2c118780fa8ccb629087ec0d5f67bc0bae4f7c5bf6d34c81d55f89e7ac595cd1961a9571b';
 const RATIO = toBN(10).pow(toBN(18));
 
+const travel = async days => {
+
+    const advanceTime = time => {
+        return new Promise((resolve, reject) => {
+            web3.currentProvider.send({
+                jsonrpc: '2.0',
+                method: 'evm_increaseTime',
+                params: [time],
+                id: new Date().getTime()
+            }, (err, result) => {
+                if (err) { return reject(err) }
+                return resolve(result)
+            })
+        })
+    };
+
+    const advanceBlock = () => {
+        return new Promise((resolve, reject) => {
+            web3.currentProvider.send({
+                jsonrpc: '2.0',
+                method: 'evm_mine',
+                id: new Date().getTime()
+            }, (err, _) => {
+                if (err) { return reject(err) }
+                const newBlockHash = web3.eth.getBlock('latest').hash;
+                return resolve(newBlockHash)
+            })
+        })
+    };
+    await advanceTime(days * 24 * 60 * 60);
+    await advanceBlock();
+};
+
 
 contract("Housteca", accounts => {
     const manager = accounts[0];
@@ -27,7 +60,7 @@ contract("Housteca", accounts => {
     const totalTokens = toBN(10).pow(toBN(18));
     const downpaymentRatio = toAmount(2, 17);  // 20% of the house belongs to Juan
     const targetAmount = toAmount(96000, 18);  // Juan needs $96000
-    const totalPayments = toBN(120);
+    const totalPayments = toBN(12);
     const insuredPayments = toBN(6);
     const paymentAmount = toAmount(1058, 18);
     const perPaymentInterestRatio = toAmount(1619, 11);  // 0.01619% daily interest
@@ -321,13 +354,19 @@ contract("Housteca", accounts => {
                                 const newBalance = await erc20.balanceOf(borrower);
                                 assert.equal(newBalance.toString(), oldBalance.sub(paymentAmount).toString());
                                 const newNextPayment = await loan._nextPayment();
-                                assert.equal(newNextPayment.toString(), oldNextPayment.add(toBN(30 * 24 * 60 * 60)).toString());
                                 const transferredTokens = await loan._transferredTokens();
-                                const amortizedAmount = await loan._amortizedAmount();
-                                const downpaymentTokens = totalTokens.mul(downpaymentRatio).div(RATIO);
-                                const amortizedTokens = totalTokens.mul(RATIO.sub(downpaymentRatio)).mul(amortizedAmount).div(targetAmount).div(RATIO);
-                                const tokens = downpaymentTokens.add(amortizedTokens);
-                                assert.equal(transferredTokens.toString(), tokens.toString());
+                                const tokens = await loan.propertyTokenAmount(borrower);
+                                const currentPayments = await loan._timesPaid();
+                                if (currentPayments.toNumber() === totalPayments.toNumber()) {
+                                    const balanceBorrower = await loan.propertyTokenAmount(borrower);
+                                    const balanceInvestor = await loan.propertyTokenAmount(investor);
+                                    assert.equal(balanceBorrower.toString(), totalTokens.toString());
+                                    assert.equal(balanceInvestor.toNumber(), 0);
+                                    assert.equal(newNextPayment.toNumber(), 0);
+                                } else {
+                                    assert.equal(newNextPayment.toString(), oldNextPayment.add(toBN(30 * 24 * 60 * 60)).toString());
+                                    assert.equal(transferredTokens.toString(), tokens.toString());
+                                }
                             };
 
                             beforeEach(async () => {
@@ -339,13 +378,41 @@ contract("Housteca", accounts => {
                                 assert.deepEqual(status, toBN(3));
                             });
 
+                            it('should initially have the correct tokens', async () => {
+                                const borrowerTokens = await loan.propertyTokenAmount(borrower);
+                                const investorTokens = await loan.propertyTokenAmount(investor);
+                                const downpaymentTokens = totalTokens.mul(downpaymentRatio).div(RATIO);
+                                assert.equal(totalTokens.sub(borrowerTokens).toString(), investorTokens.toString());
+                                assert.equal(borrowerTokens.toString(), downpaymentTokens.toString());
+                            });
+
+                            it('should not have transferred tokens', async () => {
+                                const tokens = await loan._transferredTokens();
+                                const downpaymentTokens = totalTokens.mul(downpaymentRatio).div(RATIO);
+                                assert.equal(tokens.toString(), downpaymentTokens.toString());
+                            });
+
                             it('should let the borrower pay the rent', async () => {
                                 await pay();
                             });
 
+                            it('should let the investor to collect the payment', async () => {
+                                await pay();
+                                const oldBalance = await erc20.balanceOf(investor);
+                                const oldTimesCollected = await loan._timesCollected(investor);
+                                await loan.collectEarnings({from: investor});
+                                const newTimesCollected = await loan._timesCollected(investor);
+                                const newBalance = await erc20.balanceOf(investor);
+                                assert.equal(oldTimesCollected.add(toBN(1)).toString(), newTimesCollected.toString());
+                                assert.equal(oldBalance.add(paymentAmount).toString(), newBalance.toString());
+                            });
+
                             contract('Status FINISHED', () => {
                                 beforeEach(async () => {
-
+                                    for (let i = 0; i < totalPayments.toNumber(); i++) {
+                                        await pay();
+                                        await travel(30);
+                                    }
                                 });
 
                                 it('should have the correct status', async () => {
@@ -355,13 +422,22 @@ contract("Housteca", accounts => {
                             });
 
                             contract('Status BANKRUPT', () => {
-                                beforeEach(async () => {
-
-                                });
-
-                                it('should have the correct status', async () => {
-                                    const status = await loan._status();
-                                    assert.deepEqual(status, toBN(7));
+                                it('should should reach the BANKRUPT status after finishing the insured payments', async () => {
+                                    let status = await loan._status();
+                                    assert.equal(status.toNumber(), 3);  // status DEFAULT
+                                    for (let i = 0; i < totalPayments.toNumber(); i++) {
+                                        await travel(31);
+                                        const shouldUpdate = await loan.shouldUpdate();
+                                        if (shouldUpdate) {
+                                            await loan.update({from: admin});
+                                        }
+                                        status = await loan._status();
+                                        if (i === totalPayments.toNumber()) {
+                                            assert.equal(status.toNumber(), 7);  // status BANKRUPT
+                                        } else {
+                                            assert.equal(status.toNumber(), 6);  // status DEFAULT
+                                        }
+                                    }
                                 });
                             });
                         });

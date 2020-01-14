@@ -326,13 +326,14 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
         address addr
     )
       public
+      view
       returns (uint)
     {
         if (addr == _borrower) {
             return _transferredTokens;
         }
         uint availableTokens = TOTAL_PROPERTY_TOKENS.sub(_transferredTokens);
-        return availableTokens.mul(investmentRatio(addr));
+        return availableTokens.mul(investmentRatio(addr)).div(RATIO);
     }
 
     /*********** Status AWAITING_STAKE ************/
@@ -570,7 +571,7 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
             _amortizedAmount = _targetAmount;
             _changeStatus(Status.FINISHED);
             _nextPayment = 0;
-            tokensToTransfer = TOTAL_PROPERTY_TOKENS;
+            _transferredTokens = TOTAL_PROPERTY_TOKENS;
         } else {
             // Switch to ACTIVE if it was in DEFAULT
             _changeStatus(Status.ACTIVE);
@@ -581,8 +582,8 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
             _amortizedAmount = _amortizedAmount.add(amortization);
             uint availableTokens = TOTAL_PROPERTY_TOKENS.mul(RATIO.sub(_downpaymentRatio)).div(RATIO);
             tokensToTransfer = amortization.mul(availableTokens).div(_targetAmount);
+            _transferredTokens = _transferredTokens.add(tokensToTransfer);
         }
-        _transferredTokens = _transferredTokens.add(tokensToTransfer);
     }
 
     /// Pure ERC20 function used by the borrower to pay
@@ -650,7 +651,7 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
             } else {
                 _changeStatus(Status.DEFAULT);
                 _timesDefault += 1;
-                _nextPayment = block.timestamp.add(PERIODICITY);
+                _nextPayment = _nextPayment.add(PERIODICITY);
             }
         }
     }
