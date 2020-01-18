@@ -215,7 +215,7 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
       view
       returns (bool)
     {
-        return _status == Status.ACTIVE && block.timestamp > _nextPayment;
+        return (_status == Status.ACTIVE || _status == Status.DEFAULT) && block.timestamp > _nextPayment;
     }
 
     /// Check whether the period to deposit the initial stake has expired or not.
@@ -224,7 +224,7 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
       view
       returns (bool)
     {
-        return _status == Status.AWAITING_STAKE && block.timestamp > _stakeDepositDeadline;
+        return _status == Status.AWAITING_STAKE && block.timestamp > _stakeDepositDeadline && _stakeDepositDeadline > 0;
     }
 
     /// Checks if the contract has been signed on time by the borrower and the local node.
@@ -233,7 +233,7 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
       view
       returns (bool)
     {
-        return _status == Status.AWAITING_SIGNATURES && block.timestamp > _signingDeadline;
+        return _status == Status.AWAITING_SIGNATURES && block.timestamp > _signingDeadline && _signingDeadline > 0;
     }
 
     /// Checks if the funding period has expired.
@@ -242,7 +242,7 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
       view
       returns (bool)
     {
-        return _status == Status.AWAITING_STAKE && block.timestamp > _fundingDeadline;
+        return _status == Status.AWAITING_STAKE && block.timestamp > _fundingDeadline && _fundingDeadline > 0;
     }
 
     /// Checks if this contract should be updated.
