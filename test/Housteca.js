@@ -424,20 +424,17 @@ contract("Housteca", accounts => {
                             contract('Status BANKRUPT', () => {
                                 it('should should reach the BANKRUPT status after finishing the insured payments', async () => {
                                     let status = await loan._status();
-                                    assert.equal(status.toNumber(), 3);  // status DEFAULT
-                                    for (let i = 0; i < totalPayments.toNumber(); i++) {
+                                    assert.equal(status.toNumber(), 3);  // status ACTIVE
+                                    for (let i = 0; i < insuredPayments.toNumber(); i++) {
                                         await travel(31);
-                                        const shouldUpdate = await loan.shouldUpdate();
-                                        if (shouldUpdate) {
-                                            await loan.update({from: admin});
-                                        }
+                                        await loan.update({from: admin});
                                         status = await loan._status();
-                                        if (i === totalPayments.toNumber()) {
-                                            assert.equal(status.toNumber(), 7);  // status BANKRUPT
-                                        } else {
-                                            assert.equal(status.toNumber(), 6);  // status DEFAULT
-                                        }
+                                        assert.equal(status.toNumber(), 6);  // status DEFAULT
                                     }
+                                    await travel(31);
+                                    await loan.update({from: admin});
+                                    status = await loan._status();
+                                    assert.equal(status.toNumber(), 7);  // status BANKRUPT
                                 });
                             });
                         });
