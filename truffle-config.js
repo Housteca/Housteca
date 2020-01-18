@@ -19,11 +19,7 @@
  */
 
 require('dotenv').config();
-const Web3 = require('web3');
-const web3 = new Web3();
-const fs = require('fs');
 const HDWalletProvider = require("truffle-hdwallet-provider");
-
 
 module.exports = {
 
@@ -60,6 +56,7 @@ module.exports = {
         ropsten: {
             provider: () => new HDWalletProvider(process.env.MNEMONIC, `https://ropsten.infura.io/v3/${process.env.INFURA_PROJECT_ID}`),
             network_id: 3,
+            networkCheckTimeout: 3000,
             skipDryRun: true
         }
     },

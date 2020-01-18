@@ -19,7 +19,7 @@ contract Loan is IERC777Recipient, IERC1400TokensRecipient
     /// Period of time for the borrower to deposit the initial stake
     uint constant public INITIAL_STAKE_PERIOD = 15 days;
     /// The number of seconds to make the next payment
-    uint constant public PERIODICITY = 30 days;
+    uint constant public PERIODICITY = 1;
     /// The number to multiply ratios for (solidity doesn't store floating point numbers)
     uint constant public RATIO = 10 ** 18;
     /// Total amount of property tokens
